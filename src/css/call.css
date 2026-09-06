@@ -1,0 +1,64 @@
+/* ---------- ЭКРАН ЗВОНКА ---------- */
+/* z-index выше остальных .modal-overlay (60) - звонок не должен перекрываться
+   ничем, включая уже открытую модалку (например, отпечатков), и сам не
+   закрывается кликом по фону (в отличие от confirm-modal) - только явными
+   кнопками, случайный тап мимо не должен обрывать разговор. */
+.call-overlay{
+  z-index:80; background:var(--paper); flex-direction:column;
+  justify-content:space-between; padding:48px 24px 40px;
+}
+.call-overlay.active{ display:flex; }
+/* Голосовой звонок - сплошной чёрный фон вместо светлой темы чата, текст
+   светлый поверх (по аналогии с text-shadow у .call-info на видеозвонке). */
+.call-overlay.audio-only{ background:#000; color:#fff; }
+.call-overlay.audio-only .call-status-label{ color:rgba(255,255,255,.6); }
+
+.call-remote-video, .call-local-video{
+  position:absolute; background:#000; object-fit:cover; border-radius:var(--r-md);
+}
+.call-remote-video{ inset:0; width:100%; height:100%; border-radius:0; z-index:0; object-fit:contain; }
+/* Показ/скрытие по наличию потока - управляется из ui/call-view.js через
+   класс .has-stream (srcObject нельзя таргетить CSS-атрибутным селектором,
+   это JS-свойство, а не HTML-атрибут). Пусто до подключения WebRTC-слоя -
+   не должно перекрывать .call-info чёрным прямоугольником на голосовом звонке. */
+.call-remote-video:not(.has-stream){ display:none; }
+.call-local-video{
+  width:112px; height:150px; right:20px; bottom:140px; z-index:2;
+  border:1.5px solid var(--ink);
+}
+.call-local-video.mirrored{ transform:scaleX(-1); } /* зеркалим self-view только для фронтальной камеры - привычный вид себя в зеркале */
+.call-local-video:not(.has-stream){ display:none; }
+
+/* Сворачивание звонка - уходим в меню/чат, звонок продолжается в фоне
+   (аудио/видео-элементы играют независимо от display у .call-overlay,
+   см. ui/call-view.js/renderCallUI и chat-head.js/renderCallBanner). */
+.call-minimize-btn{
+  position:absolute; top:16px; left:16px; z-index:3;
+  width:40px; height:40px; border-radius:var(--r-round); border:1.5px solid var(--ink);
+  background:var(--paper); color:var(--ink); font-size:1rem; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+}
+.call-overlay.audio-only .call-minimize-btn{ border-color:#fff; background:rgba(255,255,255,.1); color:#fff; }
+.call-minimize-btn[hidden]{ display:none; }
+
+.call-info{
+  position:relative; z-index:1; display:flex; flex-direction:column; align-items:center; gap:12px;
+  text-shadow:0 2px 12px rgba(0,0,0,.6); /* читаемо поверх .call-remote-video */
+}
+.call-peer-avatar{ width:96px; height:96px; font-size:1.75rem; }
+.call-peer-name{ font-weight:700; font-size:1.375rem; }
+.call-status-label{
+  font-family:'IBM Plex Mono',monospace; font-size:0.8125rem; color:var(--ink-60);
+  text-transform:uppercase; letter-spacing:.05em;
+}
+
+.call-actions{ position:relative; z-index:1; display:flex; justify-content:center; gap:28px; }
+.call-btn{
+  width:64px; height:64px; border-radius:var(--r-round); border:1.5px solid var(--ink);
+  background:var(--paper); color:var(--ink); font-size:1.375rem; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+}
+.call-btn-accept{ background:var(--ok); border-color:var(--ok); color:#000; }
+.call-btn-decline{ background:var(--danger); border-color:var(--danger); color:#000; }
+.call-btn-toggle.muted, .call-btn-toggle.off{ background:var(--ink); color:var(--paper); }
+.call-btn[hidden]{ display:none; }

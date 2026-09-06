@@ -1,0 +1,164 @@
+.toast{
+  position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+  background:var(--ink); color:var(--paper); padding:11px 20px; font-size:0.8125rem;
+  font-family:'IBM Plex Mono',monospace; z-index:100; display:none; max-width:80vw; text-align:center;
+  border-radius:var(--r-round);
+}
+
+.modal-overlay{
+  position:fixed; inset:0; background:rgba(0,0,0,.5); display:none;
+  align-items:center; justify-content:center; z-index:60;
+}
+.modal-overlay.active{ display:flex; }
+.modal-box{ background:var(--paper); border:1.5px solid var(--ink); border-radius:var(--r-md); width:360px; max-width:92vw; padding:24px; max-height:84vh; overflow-y:auto; }
+.modal-box h3{ font-size:1.0625rem; font-weight:700; margin-bottom:16px; }
+.modal-box .modal-desc{ font-size:0.7812rem; color:var(--ink-60); line-height:1.5; margin-bottom:16px; }
+.modal-close{ float:right; background:none; border:none; color:var(--ink-60); font-size:1.125rem; cursor:pointer; line-height:1; }
+
+.fingerprint-row{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:11px 0; border-bottom:1px solid var(--ink-10);
+}
+.fingerprint-row:last-child{ border-bottom:none; }
+.fingerprint-id{ font-family:'IBM Plex Mono',monospace; font-size:0.7188rem; word-break:break-all; color:var(--ink-60); flex:1; }
+.fingerprint-trust{
+  font-family:'IBM Plex Mono',monospace; font-size:0.6562rem; text-transform:uppercase; padding:5px 10px;
+  border:1px solid var(--ink-20); border-radius:var(--r-round); cursor:pointer; background:none; color:var(--ink-60); white-space:nowrap;
+}
+.fingerprint-trust.trusted{ border-color:var(--ok); color:var(--ok); }
+.fingerprint-section-title{
+  font-family:'IBM Plex Mono',monospace; font-size:0.6562rem; text-transform:uppercase;
+  color:var(--ink-40); margin:14px 0 4px; padding-top:10px; border-top:1px solid var(--ink-10);
+}
+.fingerprint-trust.fingerprint-forget{ border-color:var(--warn); color:var(--warn); }
+
+/* ---------- ПРОФИЛЬ (псевдоним + аватар) ---------- */
+.profile-avatar-row{ display:flex; align-items:center; gap:14px; margin-bottom:18px; }
+.profile-avatar-preview{ width:64px; height:64px; font-size:1.25rem; }
+.profile-avatar-actions{ display:flex; flex-direction:column; gap:8px; flex:1; }
+.profile-avatar-actions .btn-secondary{ width:auto; padding:8px 14px; font-size:0.7188rem; }
+
+/* ---------- НАСТРОЙКИ ШРИФТА (свой шрифт + размер) ---------- */
+.field select{
+  width:100%; border:1.5px solid var(--ink); background:var(--paper); color:var(--ink);
+  padding:11px 14px; font-size:0.9375rem; font-family:'Inter',sans-serif; outline:none;
+  border-radius:var(--r-sm); appearance:none; -webkit-appearance:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='white'><path d='M5 7l5 5 5-5z'/></svg>");
+  background-repeat:no-repeat; background-position:right 12px center; background-size:16px;
+}
+.field select:focus{ background-color:var(--ink); color:var(--paper); }
+.field input[type="range"]{
+  width:100%; margin-top:6px; accent-color:var(--ink); cursor:pointer;
+}
+.font-upload-row{ display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+.font-upload-row .btn-secondary{ width:auto; padding:8px 14px; font-size:0.7188rem; }
+#font-upload-name{ margin-top:6px; word-break:break-all; }
+
+/* ---------- настройка "сжатие видео" (чекбокс + пояснение) ---------- */
+.checkbox-row{
+  display:flex; align-items:flex-start; gap:9px; cursor:pointer; font-size:0.8438rem; line-height:1.4;
+}
+.checkbox-row input[type="checkbox"]{ width:16px; height:16px; margin-top:2px; flex-shrink:0; accent-color: var(--ink); cursor:pointer; }
+.field-hint{ font-size:0.7188rem; color:var(--ink-60); line-height:1.4; margin-top:5px; }
+
+
+/* ---------- ПОЛНОЭКРАННЫЙ ПРОСМОТР ФОТО/ВИДЕО ---------- */
+.media-viewer-overlay{ background:rgba(0,0,0,.94); z-index:80; }
+.media-viewer-content{
+  max-width:94vw; max-height:94vh; display:flex; align-items:center; justify-content:center;
+}
+.media-viewer-content img,
+.media-viewer-content video{
+  max-width:94vw; max-height:94vh; width:auto; height:auto; object-fit:contain;
+  border-radius:var(--r-sm);
+}
+/* Кружок (features/video-note.js) открывается в просмотрщике тоже круглым,
+   а не в прямоугольной рамке: video-note-viewer ставится на .media-viewer-
+   content из media-viewer.js по факту клика на .video-note-box. Квадрат
+   вписан в доступную область (94vw/94vh), видео - cover с border-radius
+   50%, чтобы обрезка шла по кругу, а не оставляла чёрные поля по бокам,
+   как было бы с contain на прямоугольном кадре. */
+.media-viewer-content.video-note-viewer video{
+  width:min(94vw,94vh); height:min(94vw,94vh); max-width:min(94vw,94vh); max-height:min(94vw,94vh);
+  object-fit:cover; border-radius:50%;
+}
+.media-viewer-close{
+  position:absolute; top:18px; right:18px; z-index:2; width:40px; height:40px;
+  border:1.5px solid var(--ink); background:var(--paper); color:var(--ink);
+  border-radius:var(--r-round); font-size:1.25rem; line-height:1; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+}
+.media-viewer-close:hover{ background:var(--ink); color:var(--paper); }
+
+/* Кнопка-разворот поверх инлайн-видео в чате (открывает то же видео в
+   .media-viewer-overlay на весь экран) - не мешает штатным play/pause/перемотке
+   нативного <video controls>, т.к. это отдельный элемент со своим stopPropagation. */
+.media-expand-btn{
+  position:absolute; top:8px; right:8px; z-index:3; width:30px; height:30px;
+  border:none; border-radius:var(--r-round); background:rgba(0,0,0,.275); color:#fff;
+  font-size:0.9375rem; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  text-shadow:0 1px 2px rgba(0,0,0,.6);
+}
+.media-expand-btn:hover{ background:rgba(0,0,0,.4); }
+
+/* ---------- ОБОИ ЧАТА (в модалке профиля, рядом с аватаром) ---------- */
+.wallpaper-row{ display:flex; align-items:center; gap:14px; }
+.wallpaper-preview{
+  width:64px; height:64px; border-radius:var(--r-sm); border:1.5px solid var(--ink);
+  background:var(--ink-05) center/cover no-repeat; flex-shrink:0;
+}
+.wallpaper-actions{ display:flex; flex-direction:column; gap:8px; flex:1; }
+.wallpaper-actions .btn-secondary{ width:auto; padding:8px 14px; font-size:0.7188rem; }
+
+/* ---------- ПОИСК ПО СООБЩЕНИЯМ ---------- */
+.search-modal-box{ width:420px; }
+.search-results{ max-height:52vh; overflow-y:auto; margin-top:4px; }
+.search-empty{ color:var(--ink-40); font-size:0.7812rem; text-align:center; padding:18px 0; }
+.search-result-item{
+  padding:10px 4px; border-bottom:1px solid var(--ink-10); cursor:pointer;
+}
+.search-result-item:last-child{ border-bottom:none; }
+.search-result-item:hover{ background:var(--ink-05); }
+.search-result-meta{
+  font-family:'IBM Plex Mono',monospace; font-size:0.6562rem; color:var(--ink-40);
+  text-transform:uppercase; letter-spacing:.04em; margin-bottom:3px;
+}
+.search-result-text{ font-size:0.8438rem; line-height:1.4; color:var(--ink); word-break:break-word; }
+.search-result-text mark{ background:var(--warn); color:var(--paper); border-radius:3px; padding:0 2px; }
+
+/* Кнопки-фильтры типа вложения над списком результатов */
+.search-filters{ display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+.search-filter-btn{
+  font-family:inherit; font-size:0.7188rem; padding:6px 11px; border-radius:var(--r-round);
+  border:1.5px solid var(--ink-10); background:transparent; color:var(--ink-60); cursor:pointer;
+}
+.search-filter-btn:hover{ border-color:var(--ink-20); }
+.search-filter-btn.active{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
+
+/* Результат-вложение: превью слева, автор/дата и подпись справа - как в
+   поиске по медиа у Telegram/WhatsApp, вместо голой aesgcm-/https-ссылки. */
+.search-result-media{ display:flex; align-items:center; gap:10px; }
+.search-result-thumb{
+  width:44px; height:44px; flex-shrink:0; border-radius:var(--r-sm); overflow:hidden;
+  background:var(--ink-05); display:flex; align-items:center; justify-content:center;
+}
+.search-result-thumb img, .search-result-thumb video{ width:100%; height:100%; object-fit:cover; display:block; }
+.search-thumb-fallback{ font-size:1.25rem; }
+.search-result-media-info{ min-width:0; flex:1; }
+
+/* Кратковременная подсветка сообщения, к которому перешли из результатов поиска */
+.msg-row.search-highlight .bubble{ animation:search-flash 1.6s ease; }
+@keyframes search-flash{
+  0%{ box-shadow:0 0 0 3px var(--warn); }
+  70%{ box-shadow:0 0 0 3px var(--warn); }
+  100%{ box-shadow:0 0 0 0 rgba(0,0,0,0); }
+}
+
+/* ---------- debug (только при DEBUG=true в .env) ---------- */
+.debug-error-box{
+  position:fixed; top:0; left:0; right:0; z-index:99999; background:#b00020; color:#fff;
+  padding:10px 14px; font:12px/1.4 monospace; white-space:pre-wrap; max-height:50vh; overflow:auto;
+}
+.debug-panel{ position:fixed; bottom:0; left:0; right:0; z-index:99998; background:#111; color:#0f0; font:11px/1.4 monospace; }
+.debug-panel-head{ padding:6px 10px; background:#222; cursor:pointer; }
+.debug-panel-body{ margin:0; padding:6px 10px; max-height:35vh; overflow:auto; white-space:pre-wrap; }

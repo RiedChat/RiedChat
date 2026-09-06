@@ -1,0 +1,78 @@
+#composer{
+  border-top:1.5px solid var(--ink); padding:9px 28px; min-height:56px; display:flex; flex-direction:column;
+}
+
+/* ---------- плашка "Ответ ..." над полем ввода (свайп-цитирование) ----------
+   Клик по любому месту плашки отменяет ответ - отдельного крестика больше нет,
+   так надёжнее (не нужно попадать в маленькую кнопку) и не бывает шального
+   закрытия клавиатуры, которое давал фокус на <button>. */
+.reply-bar{
+  display:flex; align-items:stretch; gap:10px; width:100%;
+  padding:6px 10px 6px 0; margin-bottom:8px;
+  border-radius:var(--r-sm); background:var(--ink-05);
+  cursor:pointer;
+}
+.reply-bar:hover{ background:var(--ink-10); }
+.reply-bar-accent{ width:3px; flex-shrink:0; border-radius:var(--r-round); background:var(--warn); }
+.reply-bar-body{ flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:1px; }
+.reply-bar-title{ font-size:0.75rem; font-weight:700; color:var(--warn); }
+/* #reply-bar-verb ("Ответ"/"Редактирование") наследует жирный акцентный цвет
+   заголовка - только #reply-bar-author (имя собеседника) рисуется светлее. */
+.reply-bar-title #reply-bar-verb{ font-weight:700; color:inherit; }
+.reply-bar-title #reply-bar-author{ font-weight:500; color:var(--ink-60); }
+/* Режим редактирования (features/message-edit.js) - та же плашка, что и для
+   цитаты, только акцент зелёный (--ok), как остальные "положительные"/активные
+   индикаторы в интерфейсе (галочка "прочитано", online-статус). */
+.reply-bar.editing .reply-bar-accent{ background:var(--ok); }
+.reply-bar.editing .reply-bar-title{ color:var(--ok); }
+.reply-bar-text{
+  font-size:0.8125rem; color:var(--ink-60);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.composer-row{ display:flex; align-items:flex-end; gap:10px; width:100%; }
+#composer textarea{
+  flex:1; border:1.5px solid var(--ink); padding:8px 16px; font-size:0.9062rem; font-family:'Inter',sans-serif;
+  resize:none; outline:none; max-height:140px; min-height:38px; line-height:1.4;
+  border-radius:var(--r-lg); background:var(--paper); color:var(--ink);
+  /* WebView иногда всегда резервирует и рисует трек скролла, даже когда текст
+     не переполняет поле - визуально это серая капсула справа. Прячем сам
+     скроллбар, скролл при этом продолжает работать (жестом/колёсиком). */
+  scrollbar-width:none; -ms-overflow-style:none;
+}
+#composer textarea::-webkit-scrollbar{ display:none; width:0; height:0; }
+#composer textarea:focus{ background:var(--ink-05); }
+#composer textarea:disabled{ background:var(--ink-05); color:var(--ink-40); cursor:default; }
+.icon-btn{
+  width:38px; height:38px; border:1.5px solid var(--ink); background:var(--paper); color:var(--ink);
+  display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;
+  font-size:1rem; border-radius:var(--r-round);
+}
+.icon-btn:hover{ background:var(--ink); color:var(--paper); }
+.icon-btn:disabled{ opacity:.25; cursor:default; }
+.send-btn{ background:var(--ink); color:var(--paper); }
+.send-btn:hover{ background:var(--paper); color:var(--ink); }
+#file-input{ display:none; }
+#mic-btn.active{ background:var(--danger); color:#fff; border-color:var(--danger); }
+/* Жест тап/зажатие (features/voice-recorder.js, features/video-note.js) не должен
+   запускать скролл страницы, выделение текста или системный контекстный колл-аут
+   на долгом нажатии - иначе на телефоне запись срывается уже на первую секунду. */
+#mic-btn{ touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+
+/* ---------- запись голосового сообщения ---------- */
+.recording-indicator{
+  flex:1; display:flex; align-items:center; gap:9px; padding:0 16px; height:38px;
+  border:1.5px solid var(--ink-20); border-radius:var(--r-lg); font-family:'IBM Plex Mono',monospace; font-size:0.8125rem;
+}
+.recording-dot{
+  width:9px; height:9px; border-radius:50%; background:var(--danger); flex-shrink:0;
+}
+.recording-hint{ color:var(--ink-40); margin-left:2px; }
+
+.upload-progress{
+  display:flex; align-items:center; gap:10px; padding:8px 28px; font-family:'IBM Plex Mono',monospace; font-size:0.6875rem;
+  color:var(--ink-60); border-top:1px solid var(--ink-10); cursor:pointer;
+}
+.upload-progress:hover{ color:var(--ink); }
+.upload-progress:hover .upload-bar-fill{ background:var(--red, #d33); }
+.upload-bar{ flex:1; height:4px; background:var(--ink-10); border-radius:var(--r-round); position:relative; overflow:hidden; }
+.upload-bar-fill{ position:absolute; left:0; top:0; bottom:0; background:var(--ink); width:0%; }

@@ -1,0 +1,42 @@
+/* ---------- запись видео-кружка (features/video-note.js) ----------
+   Полноэкранный оверлей поверх чата: живой круглый превью с камеры во время
+   записи, затем тот же круг с записанным роликом и кнопками отправить/удалить. */
+.video-note-wrap{
+  display:flex; flex-direction:column; align-items:center; gap:18px;
+}
+.video-note-circle{
+  width:260px; height:260px; border-radius:50%; position:relative;
+  padding:4px; box-sizing:border-box;
+  /* --progress (0..100) двигает "докручивающийся" по кругу индикатор
+     оставшегося времени записи - обновляется из JS каждый тик таймера. */
+  background:conic-gradient(#e53935 calc(var(--progress, 0) * 1%), rgba(255,255,255,.28) 0);
+  transition:background .15s linear;
+}
+.video-note-circle video{
+  width:100%; height:100%; border-radius:50%; object-fit:cover; display:block;
+  background:#000;
+}
+.video-note-circle video.mirrored{ transform:scaleX(-1); }
+.video-note-timer{
+  font-family:'IBM Plex Mono',monospace; font-size:0.875rem; color:#fff;
+  text-shadow:0 1px 3px rgba(0,0,0,.9);
+}
+.video-note-controls{ display:flex; align-items:center; gap:28px; }
+.video-note-controls .icon-btn{
+  width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+  font-size:1.25rem; background:rgba(255,255,255,.12); color:#fff; border:1.5px solid rgba(255,255,255,.4);
+}
+.video-note-stop-btn{ background:#e53935 !important; border-color:#e53935 !important; }
+.video-note-send-btn{ background:var(--ink) !important; border-color:var(--ink) !important; color:var(--paper) !important; }
+.video-note-cancel-btn{ background:rgba(255,255,255,.12); }
+/* Кнопка смены камеры (features/video-note.js:switchCamera) - скрывается,
+   если на устройстве определилась только одна камера (см.
+   detectMultipleCameras), чтобы не показывать нерабочую кнопку. */
+.video-note-switch-cam-btn[hidden]{ display:none; }
+/* controlsList="nofullscreen" не поддерживается в Firefox/Safari - там
+   кнопку fullscreen прячем через vendor-псевдоэлементы нативных controls
+   (WebKit/Blink), чтобы её прямоугольная зона не вылезала за круглую
+   маску видео (border-radius клипует только сам видеокадр, но не UA-
+   панель управления). */
+.video-note-circle video::-webkit-media-controls-fullscreen-button{ display:none !important; }
+.video-note-circle video::-moz-media-controls-fullscreen-button{ display:none !important; }

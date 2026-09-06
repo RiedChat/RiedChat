@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- CSP: главный рубеж на случай пропущенного App.raw() с недоверенными
+     данными. script-src жёстко ограничен 'self' + jsdelivr (единственный
+     внешний скрипт - strophe.js, см. ниже, с SRI). style-src допускает
+     'unsafe-inline' из-за существующих inline style="" в разметке - их
+     вынос в CSS отдельная задача, но инъекция стилей не даёт выполнить JS.
+     connect-src/media-src широкие ('self' https: wss:), потому что
+     пользователь сам указывает адрес XMPP-сервера (BOSH/WebSocket) и грузит
+     вложения с произвольных HTTP-upload серверов - это не баг, а то, как
+     устроено приложение. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-wONYzXS/1wmeeZDKLT5gkY37hJSWNX8WJFEodTNeQ88='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' blob: https: data:; connect-src 'self' https: wss: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'">
+<title>RiedChat</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png">
+
+<!-- Vite сам добавляет контент-хэши к именам файлов из src/ при сборке -
+     ручной ?v=YYYYMMDD больше не нужен для них. libsignal-protocol.js
+     остаётся обычным classic-скриптом из public/ (см. README.md),
+     для него при необходимости кэш всё ещё бьётся через ?v=. -->
+<!-- Режим отладки включается через ?debug=1 в адресной строке - см. src/core/env.js
+     (первый импорт в src/main.js). -->
+<script>
+  window.App = window.App || {};
+  window.App._debugLines = [];
+
+  window.App.debugLog = function(msg){
+    if(!window.App.DEBUG) return;
+    var line = '[' + new Date().toISOString().slice(11,19) + '] ' + msg;
+    window.App._debugLines.push(line);
+    console.log(line);
+    var pre = document.getElementById('__omemo_debug_pre');
+    if(pre){ pre.textContent += line + '\n'; pre.scrollTop = pre.scrollHeight; }
+  };
+
+  // Вызывается из env.js только если DEBUG=true: показывает блок текста JS-ошибок
+  // наверху экрана и сворачиваемую панель лога OMEMO/аплоада внизу.
+  window.App._enableDebugUI = function(){
+    window.addEventListener('error', function(e){
+      var box = document.createElement('div');
+      box.className = 'debug-error-box';
+      box.textContent = 'JS ERROR: ' + e.message + '\n  at ' + (e.filename || '?') + ':' + e.lineno + ':' + e.colno;
+      document.body ? document.body.prepend(box) : window.addEventListener('DOMContentLoaded', function(){ document.body.prepend(box); });
+    });
+    var mount = function(){
+      var wrap = document.createElement('div');
+      wrap.className = 'debug-panel';
+      var head = document.createElement('div');
+      head.className = 'debug-panel-head';
+      head.textContent = '▲ OMEMO debug log (тап, чтобы свернуть/развернуть)';
+      var pre = document.createElement('pre');
+      pre.id = '__omemo_debug_pre';
+      pre.className = 'debug-panel-body';
+      pre.textContent = window.App._debugLines.join('\n');
+      head.addEventListener('click', function(){
+        pre.style.display = pre.style.display === 'none' ? 'block' : 'none';
+      });
+      wrap.appendChild(head);
+      wrap.appendChild(pre);
+      document.body.appendChild(wrap);
+    };
+    if(document.body) mount(); else window.addEventListener('DOMContentLoaded', mount);
+  };
+</script>
+<!-- XMPP -->
+<script src="https://cdn.jsdelivr.net/npm/strophe.js@1.4.2/dist/strophe.umd.min.js" integrity="sha384-+lxQjl/JlNglMTojnscItRtJu8wBYuqEbuBszRpfcaNh8IPttf/4CK2UgnNRFxtj" crossorigin="anonymous"></script>
+<!-- OMEMO: Signal Protocol (X3DH + Double Ratchet) -->
+<script src="/js/crypto/libsignal-protocol.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Остальной CSS импортируется из src/main.js (import './css/*.css') -
+     Vite бандлит и минифицирует его вместе с JS, отдельные <link> не нужны. -->
+</head>
+<body>
+
+  <!-- LOGIN -->
+  <div id="login-screen">
+    <div class="login-box">
+      <div class="login-brand"><span class="dot"></span><span data-i18n="login.brandLine">XMPP / WEBSOCKET CLIENT</span></div>
+      <div class="login-title" data-i18n="login.title">RiedChat</div>
+      <div class="login-sub"><span class="lock">🔒</span><span data-i18n="login.encryptionNotice">OMEMO-шифрование включено по умолчанию</span></div>
+      <div class="field">
+        <label data-i18n="login.wsUrlLabel">Адрес WebSocket (wss://...)</label>
+        <input id="ws-url" type="text">
+      </div>
+      <div class="field">
+        <label data-i18n="login.jidLabel">JID (user@domain)</label>
+        <input id="jid" type="text">
+      </div>
+      <div class="field">
+        <label data-i18n="login.passwordLabel">Пароль</label>
+        <input id="password" type="password" placeholder="••••••••">
+      </div>
+      <div class="field" style="display:flex; align-items:center; gap:8px; margin-top:-2px;">
+        <input type="checkbox" id="remember-me" checked style="width:auto;">
+        <label style="margin:0; text-transform:none; letter-spacing:normal; font-size:12.5px; color:var(--ink-60);" for="remember-me" data-i18n="login.rememberMe">Запомнить аккаунт на этом устройстве</label>
+      </div>
+      <div class="field-hint" style="margin-top:-6px;" data-i18n="login.passwordHint">Пароль хранится на устройстве в зашифрованном виде (AES-GCM), ключ защищён биометрией/PIN устройства (WebAuthn) или отдельной пароль-фразой.</div>
+      <button class="btn-primary" id="connect-btn" data-i18n="login.connectBtn">Войти</button>
+      <div class="login-status" id="login-status"></div>
+      <div class="saved-account" id="saved-account" style="display:none;">
+        <span id="saved-account-label"></span>
+        <button id="forget-account" data-i18n="login.forgetBtn">Забыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- APP -->
+  <div id="app">
+    <div id="sidebar">
+      <div class="sidebar-head">
+        <div class="sidebar-head-left">
+          <button type="button" id="my-avatar-btn" class="avatar my-avatar-btn" data-i18n-title="sidebar.myProfileTitle" title="Мой профиль: псевдоним и аватар">?</button>
+          <div class="sidebar-title" data-i18n="sidebar.emptyStateTitle">RiedChat</div>
+        </div>
+        <button type="button" id="logout-btn" class="logout-btn" data-i18n-title="sidebar.logoutTitle" title="Выйти из аккаунта" data-i18n="sidebar.logoutBtn">Выход</button>
+      </div>
+      <div class="search-wrap"><input id="roster-search" type="text" data-i18n-placeholder="sidebar.searchPlaceholder" placeholder="Поиск"></div>
+      <div id="roster"></div>
+      <div class="add-contact" id="add-contact-btn"><span class="plus">+</span> <span data-i18n="sidebar.addContact">Добавить контакт</span></div>
+    </div>
+
+    <div id="chat-area">
+      <div id="empty-state">
+        <div class="glyph" data-i18n="sidebar.emptyStateTitle">RiedChat</div>
+        <p data-i18n="sidebar.emptyStateHint">Выберите контакт слева</p>
+      </div>
+
+      <div id="conversation" style="display:none; flex:1; flex-direction:column; min-height:0;">
+        <div class="chat-head">
+          <button class="back-btn" id="back-btn">←</button>
+          <div class="avatar" id="chat-avatar">?</div>
+          <div class="chat-head-title">
+            <div class="chat-head-name" id="chat-name">-</div>
+            <div class="chat-head-sub" id="chat-sub">-</div>
+          </div>
+          <div class="chat-head-right">
+            <button type="button" class="icon-btn header-icon-btn" id="call-start-video-btn" title="Видеозвонок">📹</button>
+            <button type="button" class="icon-btn header-icon-btn" id="call-start-audio-btn" title="Аудиозвонок">📞</button>
+            <button type="button" class="icon-btn header-icon-btn chat-menu-btn" id="chat-menu-btn" title="Меню чата">⋮</button>
+            <div class="chat-menu-dropdown" id="chat-menu-dropdown">
+              <button type="button" class="chat-menu-item" id="chat-search-btn">🔍 Поиск по сообщениям</button>
+              <span class="chat-menu-item omemo-badge" id="omemo-badge" title="Показать отпечатки ключей" style="display:none;">🔒 OMEMO</span>
+              <button type="button" class="chat-menu-item" id="omemo-toggle" title="OMEMO включен (нажмите, чтобы выключить)">🔒 Выключить OMEMO</button>
+              <button type="button" class="chat-menu-item chat-menu-item-danger" id="clear-chat-btn">🗑 Очистить историю чата</button>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="call-return-banner" id="call-return-banner" hidden>
+          <span id="call-return-banner-text">Звонок идёт - вернуться</span>
+        </button>
+        <div class="select-bar" id="select-bar">
+          <button type="button" class="icon-btn select-bar-close" id="select-bar-close" title="Отменить выбор">×</button>
+          <div class="select-bar-count" id="select-bar-count">Выбрано: 0</div>
+          <button type="button" class="icon-btn select-bar-delete" id="select-bar-delete" title="Удалить выбранные (только у меня)" disabled>🗑</button>
+        </div>
+        <div id="messages"></div>
+        <div class="upload-progress" id="upload-progress" style="display:none;">
+          <span id="upload-label">upload.jpg</span>
+          <div class="upload-bar"><div class="upload-bar-fill" id="upload-bar-fill"></div></div>
+          <span id="upload-pct">0%</span>
+        </div>
+        <div id="composer">
+          <input type="file" id="file-input" multiple>
+          <div id="reply-bar" class="reply-bar" style="display:none;" title="Нажмите, чтобы отменить ответ">
+            <div class="reply-bar-accent"></div>
+            <div class="reply-bar-body">
+              <div class="reply-bar-title"><span id="reply-bar-verb">Ответ</span> <span id="reply-bar-author"></span></div>
+              <div class="reply-bar-text" id="reply-bar-text"></div>
+            </div>
+          </div>
+          <div id="sticker-panel" class="sticker-panel" style="display:none;">
+            <input type="file" id="sticker-file-input" accept=".png,.webp,.jpg,.jpeg,.heic,.heif,.gif,image/png,image/webp,image/jpeg,image/heic,image/heif,image/gif" multiple>
+            <div class="sticker-panel-header">
+              <div class="sticker-tabs" id="sticker-tabs"></div>
+              <button type="button" class="icon-btn sticker-share-btn" id="sticker-share-btn" title="Поделиться паком">📤</button>
+              <button type="button" class="icon-btn sticker-manage-btn" id="sticker-manage-btn" title="Управление паками">✏️</button>
+              <button type="button" class="icon-btn sticker-close-btn" id="sticker-panel-close" title="Закрыть">×</button>
+            </div>
+            <div class="sticker-grid" id="sticker-grid"></div>
+          </div>
+          <div id="composer-text" class="composer-row">
+            <button class="icon-btn" id="attach-btn" title="Прикрепить файл">📎</button>
+            <textarea id="msg-input" placeholder="Сообщение" rows="1"></textarea>
+            <button class="icon-btn" id="sticker-btn" title="Стикеры">🧐</button>
+            <button class="icon-btn" id="mic-btn" title="Записать голосовое сообщение">🎤</button>
+            <button class="icon-btn send-btn" id="send-btn" title="Отправить">➤</button>
+          </div>
+          <div id="composer-recording" class="composer-row" style="display:none;">
+            <button class="icon-btn" id="cancel-record-btn" title="Отменить запись">🗑</button>
+            <div class="recording-indicator">
+              <span class="recording-dot"></span>
+              <span id="recording-time">0:00</span>
+              <span class="recording-hint">запись голосового…</span>
+            </div>
+            <button class="icon-btn send-btn" id="stop-record-btn" title="Отправить голосовое">➤</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="video-note-modal">
+    <div class="video-note-wrap">
+      <div class="video-note-circle" id="video-note-circle">
+        <video id="video-note-preview" playsinline autoplay muted controlsList="nofullscreen noremoteplayback" disablePictureInPicture></video>
+      </div>
+      <div class="video-note-timer" id="video-note-timer">0:00 / 1:00</div>
+      <div class="video-note-controls" id="video-note-record-controls">
+        <button type="button" class="icon-btn video-note-cancel-btn" id="video-note-cancel-btn" title="Отменить запись">🗑</button>
+        <button type="button" class="icon-btn video-note-switch-cam-btn" id="video-note-switch-cam-btn" title="Сменить камеру">🔄</button>
+        <button type="button" class="icon-btn video-note-stop-btn" id="video-note-stop-btn" title="Остановить и посмотреть">⏹</button>
+      </div>
+      <div class="video-note-controls" id="video-note-preview-controls" style="display:none;">
+        <button type="button" class="icon-btn video-note-cancel-btn" id="video-note-discard-btn" title="Удалить">🗑</button>
+        <button type="button" class="icon-btn send-btn video-note-send-btn" id="video-note-send-btn" title="Отправить">➤</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="add-modal">
+    <div class="modal-box">
+      <h3>Добавить контакт</h3>
+      <div class="field">
+        <label>Ник контакта</label>
+        <input id="new-contact-jid" type="text" placeholder="ник" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </div>
+      <button class="btn-primary" id="add-contact-confirm">Добавить</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="new-pack-modal">
+    <div class="modal-box">
+      <h3>Новый пак стикеров</h3>
+      <div class="field">
+        <label>Название пака</label>
+        <input id="new-pack-name" type="text" placeholder="Мой пак" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </div>
+      <button class="btn-primary" id="new-pack-confirm">Создать</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="fp-modal">
+    <div class="modal-box">
+      <button class="modal-close" id="fp-modal-close">×</button>
+      <h3>OMEMO - ключи шифрования</h3>
+      <div class="modal-desc">
+        Сверьте отпечаток устройства собеседника с ним лично или по другому каналу связи,
+        затем отметьте его как проверенный. Это защищает от подмены ключа (MITM).
+      </div>
+      <div class="field">
+        <label>Ваш отпечаток</label>
+        <div class="fingerprint-id" id="fp-my-value">-</div>
+      </div>
+      <div class="field">
+        <label for="fp-device-limit">Запоминать устройств контакта</label>
+        <select id="fp-device-limit">
+          <option value="1">1 устройство</option>
+          <option value="2">2 устройства</option>
+          <option value="3">3 устройства</option>
+          <option value="4">4 устройства</option>
+          <option value="5">5 устройств</option>
+        </select>
+      </div>
+      <div id="fp-pending"></div>
+      <div id="fp-list"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="profile-modal">
+    <div class="modal-box">
+      <button class="modal-close" id="profile-modal-close">×</button>
+      <h3>Мой профиль и настройки</h3>
+      <div class="modal-desc">
+        Псевдоним и аватар видны всем вашим контактам вместо ника из адреса - рассылаются
+        автоматически, как только вы онлайн. Ниже - настройки шрифта переписки на этом
+        устройстве (меню и остальной интерфейс они не затрагивают).
+      </div>
+      <div class="profile-avatar-row">
+        <div class="avatar profile-avatar-preview" id="profile-avatar-preview">?</div>
+        <div class="profile-avatar-actions">
+          <button type="button" class="btn-secondary" id="profile-avatar-pick">Выбрать фото</button>
+          <button type="button" class="btn-secondary" id="profile-avatar-remove" style="display:none;">Удалить фото</button>
+        </div>
+        <input type="file" id="profile-avatar-input" accept="image/*" style="display:none;">
+      </div>
+      <div class="field">
+        <label>Псевдоним</label>
+        <input id="profile-nickname" type="text" placeholder="например, User" maxlength="60" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="checkbox-row">
+          <input type="checkbox" id="theme-light-toggle">
+          <span>Светлая тема</span>
+        </label>
+        <div class="field-hint">
+          По умолчанию используется тёмная тема. Применяется сразу, кнопку
+          «Сохранить» нажимать не обязательно.
+        </div>
+      </div>
+      <div class="field">
+        <label>Обои чата</label>
+        <div class="wallpaper-row">
+          <div class="wallpaper-preview" id="wallpaper-preview"></div>
+          <div class="wallpaper-actions">
+            <button type="button" class="btn-secondary" id="wallpaper-pick">Выбрать фото</button>
+            <button type="button" class="btn-secondary" id="wallpaper-remove" style="display:none;">Сбросить</button>
+          </div>
+          <input type="file" id="wallpaper-input" accept="image/*" style="display:none;">
+        </div>
+      </div>
+      <div class="field">
+        <label>Шрифт сообщений в чате</label>
+        <select id="font-family-select">
+          <option value="">По умолчанию (Inter)</option>
+          <option value="system-ui,-apple-system,sans-serif">Системный шрифт устройства</option>
+          <option value="'Georgia',serif">Georgia (с засечками)</option>
+          <option value="'Times New Roman',Times,serif">Times New Roman</option>
+          <option value="'Verdana',sans-serif">Verdana</option>
+          <option value="'Trebuchet MS',sans-serif">Trebuchet MS</option>
+          <option value="'Courier New',monospace">Courier New (моноширинный)</option>
+          <option value="__custom__" id="custom-font-option" style="display:none;">Свой загруженный шрифт</option>
+        </select>
+        <div class="field-hint">Меняет шрифт только текста в переписке. Выберите «По умолчанию», чтобы убрать свой шрифт.</div>
+        <div class="font-upload-row">
+          <button type="button" class="btn-secondary" id="font-upload-btn">Загрузить шрифт с устройства</button>
+          <button type="button" class="btn-secondary" id="font-upload-remove" style="display:none;">Удалить</button>
+          <input type="file" id="font-upload-input" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2" style="display:none;">
+        </div>
+        <div class="field-hint" id="font-upload-name"></div>
+      </div>
+      <div class="field">
+        <label>Размер текста в сообщениях: <span id="font-size-value">15 px</span></label>
+        <input type="range" id="font-size-slider" min="13" max="100" step="1" value="15">
+        <div class="field-hint">Меняет размер только текста внутри переписки (пузыри сообщений).</div>
+      </div>
+      <div class="field">
+        <label class="checkbox-row">
+          <input type="checkbox" id="swipe-reversed-toggle">
+          <span>Реверс направления свайпа по сообщению</span>
+        </label>
+        <div class="field-hint">
+          По умолчанию (как в Telegram): свайп справа налево - цитировать,
+          слева направо - копировать текст/скачать файл. Включите, если
+          удобнее наоборот (например, при RTL-раскладке интерфейса).
+        </div>
+      </div>
+      <div class="field">
+        <label class="checkbox-row">
+          <input type="checkbox" id="video-no-autoload-toggle">
+          <span>Не загружать видео автоматически</span>
+        </label>
+        <div class="field-hint">
+          Входящие видео будут показывать только превью - само видео скачается
+          и закэшируется для просмотра только после нажатия на него.
+        </div>
+      </div>
+      <div class="field">
+        <label class="checkbox-row">
+          <input type="checkbox" id="image-no-autoload-toggle">
+          <span>Не загружать картинки автоматически</span>
+        </label>
+        <div class="field-hint">
+          Ссылки на изображения в чужих сообщениях будут показывать только
+          превью - сама картинка загрузится только после нажатия на него.
+          Защищает от tracking-пикселей: пока вы не нажали, ваш IP и время
+          прочтения хосту картинки не раскрываются.
+        </div>
+      </div>
+      <div class="field">
+        <label class="checkbox-row">
+          <input type="checkbox" id="sticker-no-autoload-toggle">
+          <span>Не загружать стикеры автоматически</span>
+        </label>
+        <div class="field-hint">
+          Входящие стикеры будут показывать только превью - сам стикер
+          скачается и закэшируется для просмотра только после нажатия на него.
+        </div>
+      </div>
+      <div class="field">
+        <label class="checkbox-row">
+          <input type="checkbox" id="videonote-no-autoload-toggle">
+          <span>Не загружать кружки автоматически</span>
+        </label>
+        <div class="field-hint">
+          Входящие кружки (круглые видео-сообщения) будут показывать только
+          превью - сам кружок скачается и закэшируется для просмотра только
+          после нажатия на него.
+        </div>
+      </div>
+      <button class="btn-primary" id="profile-save">Сохранить</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="confirm-modal">
+    <div class="modal-box">
+      <h3 id="confirm-title">Вы уверены?</h3>
+      <div class="modal-desc" id="confirm-desc"></div>
+      <div style="display:flex; gap:10px; margin-top:14px;">
+        <button class="btn-secondary" id="confirm-cancel" style="flex:1;">Отмена</button>
+        <button class="btn-primary" id="confirm-ok" style="flex:1; background:#b00020; border-color:#b00020;">Удалить</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="vault-modal">
+    <div class="modal-box">
+      <h3 id="vault-title">Пароль-фраза для защиты данных</h3>
+      <div class="modal-desc" id="vault-desc"></div>
+      <div class="field">
+        <input id="vault-passphrase" type="password" data-i18n-placeholder="vault.placeholder" placeholder="пароль-фраза" autocomplete="off">
+      </div>
+      <div class="modal-desc" id="vault-error" style="color:#b00020; display:none;"></div>
+      <div style="display:flex; gap:10px; margin-top:14px;">
+        <button class="btn-secondary" id="vault-cancel" data-i18n="modals.cancelBtn" style="flex:1;">Отмена</button>
+        <button class="btn-primary" id="vault-ok" data-i18n="vault.continueBtn" style="flex:1;">Продолжить</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay media-viewer-overlay" id="media-viewer-modal">
+    <button type="button" class="media-viewer-close" id="media-viewer-close" title="Закрыть">×</button>
+    <div class="media-viewer-content" id="media-viewer-content"></div>
+  </div>
+
+  <!-- Экран звонка: одна разметка на все состояния (входящий/исходящий/активный),
+       видимость конкретного набора кнопок и подписи переключает ui/call-view.js
+       по S.call.status - см. features/call/call-manager.js. -->
+  <div class="modal-overlay call-overlay" id="call-overlay">
+    <video id="call-remote-video" class="call-remote-video" autoplay playsinline></video>
+    <video id="call-local-video" class="call-local-video" autoplay playsinline muted></video>
+
+    <button type="button" class="call-minimize-btn" id="call-minimize-btn" title="Свернуть звонок" hidden>▁</button>
+
+    <div class="call-info">
+      <div class="avatar call-peer-avatar" id="call-peer-avatar">?</div>
+      <div class="call-peer-name" id="call-peer-name">-</div>
+      <div class="call-status-label" id="call-status-label">-</div>
+    </div>
+
+    <div class="call-actions" id="call-incoming-actions" style="display:none;">
+      <button type="button" class="call-btn call-btn-decline" id="call-decline-btn" title="Отклонить">✕</button>
+      <button type="button" class="call-btn call-btn-accept" id="call-accept-btn" title="Принять">✓</button>
+    </div>
+
+    <div class="call-actions" id="call-outgoing-actions" style="display:none;">
+      <button type="button" class="call-btn call-btn-decline" id="call-cancel-btn" title="Отменить вызов">✕</button>
+    </div>
+
+    <div class="call-actions" id="call-active-actions" style="display:none;">
+      <button type="button" class="call-btn call-btn-toggle" id="call-mute-btn" title="Микрофон">🎤</button>
+      <button type="button" class="call-btn call-btn-toggle" id="call-camera-btn" title="Камера" hidden>📹</button>
+      <button type="button" class="call-btn call-btn-toggle" id="call-switch-cam-btn" title="Сменить камеру" hidden>🔄</button>
+      <button type="button" class="call-btn call-btn-decline" id="call-hangup-btn" title="Завершить звонок">✕</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="search-modal">
+    <div class="modal-box search-modal-box">
+      <button class="modal-close" id="search-modal-close">×</button>
+      <h3>Поиск по сообщениям</h3>
+      <div class="field">
+        <input id="search-modal-input" type="text" placeholder="Введите текст для поиска" autocomplete="off">
+      </div>
+      <div class="search-filters" id="search-filters">
+        <button type="button" class="search-filter-btn active" data-filter="all">Текст</button>
+        <button type="button" class="search-filter-btn" data-filter="image">📷 Фото</button>
+        <button type="button" class="search-filter-btn" data-filter="sticker">🖼️ Стикеры</button>
+        <button type="button" class="search-filter-btn" data-filter="video">🎥 Видео</button>
+        <button type="button" class="search-filter-btn" data-filter="videonote">⭕ Кружки</button>
+        <button type="button" class="search-filter-btn" data-filter="audio">🎤 Аудио</button>
+        <button type="button" class="search-filter-btn" data-filter="file">📎 Файлы</button>
+      </div>
+      <div id="search-results" class="search-results"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- порядок важен: core -> crypto -> net -> ui -> features -> app -
+       сохранён внутри src/main.js (см. комментарий в самом файле). -->
+  <script type="module" src="/src/main.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,125 @@
+/* ---------- медиа-сообщения (только фото/видео, без текста) ----------
+   Как в Telegram: картинка/видео идут "встык" с формой пузыря, без белой рамки
+   вокруг из-за разных радиусов - пузырь обрезает медиа своей же формой
+   (overflow:hidden + border-radius:inherit), а время/замок лежат поверх. */
+.bubble.media-only{ padding:0; overflow:hidden; white-space:normal; line-height:0; }
+.bubble.media-only .media-frame{
+  border-radius:inherit; overflow:hidden; line-height:0;
+  /* хак против старых WebKit/WebView, где overflow:hidden иногда не обрезает
+     <video> по border-radius без маски - safe no-op в остальных браузерах */
+  -webkit-mask-image:-webkit-radial-gradient(white, black);
+}
+/* Не растягиваем на 100% ширины пузыря - вместо этого даём медиа само определить
+   размер в рамках width/height-лимитов (как делает Telegram: длинная сторона
+   упирается в потолок, короткая тянется за ней с сохранением пропорций).
+   Пузырь при этом сам обтягивает картинку/видео (см. .bubble.media-only без
+   фиксированной ширины), поэтому широкие кадры остаются широкими, а высокие -
+   узкими и высокими, но не выше потолка. Скрины компактнее (~0.8x), видео крупнее (~1.3x). */
+.bubble.media-only .media-frame img{
+  display:block; width:auto; height:auto;
+  max-width:256px; max-height:320px; min-width:144px; min-height:48px;
+  margin:0; border-radius:0; object-fit:cover;
+}
+.bubble.media-only .media-frame .video-ratio-box{
+  position:relative; display:block; width:416px; max-width:100%; min-width:234px;
+  margin:0; border-radius:0; overflow:hidden;
+  padding-top:56.25%; /* 9/16 */
+  background:var(--ink-05);
+}
+.bubble.media-only .media-frame .video-ratio-box video{
+  position:absolute; inset:0; width:100%; height:100%;
+  display:block; object-fit:cover; object-position:center; border-radius:0;
+}
+.bubble.media-only .media-frame .media-loading{ display:block; padding:40px 20px; text-align:center; }
+
+/* ---------- кружок (features/video-note.js) - круглое видео-сообщение,
+   как в Telegram: фиксированный квадрат, обрезанный в круг, без рамки 16:9.
+   Базовые правила .msg-row.out/.in .bubble (messages.css) задают сплошной
+   фон, рамку и слегка скруглённый "хвостик"-угол - для обычных текстовых
+   пузырей это нужно, а для кружка превращает квадратную подложку в
+   заметную рамку вокруг круглого видео. Отменяем всё это здесь с той же
+   специфичностью (.msg-row.out/.in .bubble), чтобы наши правила не проиграли
+   каскаду, и делаем сам пузырь круглым, а не скруглённым прямоугольником. */
+.msg-row.out .bubble.video-note,
+.msg-row.in .bubble.video-note{
+  background:none; border:none; border-radius:50%;
+  width:200px; height:200px; max-width:200px; padding:0;
+}
+.bubble.media-only.video-note{
+  background:none;
+  /* Внешний .bubble.media-only сам клипует overflow:hidden - на обычных
+     фото/видео это ок (прямоугольная рамка), но на кружке именно ЭТО и
+     обрезало кнопку .media-expand-btn, торчащую за пределы вписанной
+     окружности. Круглую форму даёт border-radius:50% на самом .bubble
+     (см. правило выше) вместе с border-radius на <video> - обрезка по
+     overflow тут не нужна вовсе. */
+  overflow:visible;
+}
+.bubble.media-only.video-note .media-frame{
+  border-radius:50%; -webkit-mask-image:none;
+  /* overflow:visible - иначе кнопка .media-expand-btn (сидит в углу
+     квадратного бокса, за пределами вписанной окружности) обрезалась бы
+     этим контейнером. Сам круг видео не пострадает: он клипуется
+     собственным border-radius:50% на <video> (см. правило ниже), а не
+     родительским overflow. */
+  overflow:visible;
+}
+.bubble.media-only .media-frame .video-note-box{
+  position:relative; display:block; width:200px; height:200px; max-width:100%;
+  margin:0; border-radius:50%; background:var(--ink-05);
+  /* overflow не hidden: видео внутри уже круглое за счёт собственного
+     border-radius:50% (см. правило video ниже), а кнопка "на весь экран"
+     должна торчать НАД кругом, на его углу - clip тут её бы срезал. */
+}
+/* Кнопка "на весь экран" (.media-expand-btn) на кружке - та же кнопка, что
+   и у обычного видео (media-messages.css/modals.css). Базовое позиционирование
+   top:8px/right:8px из modals.css рассчитано на прямоугольный кадр: для
+   круглого кружка угол квадратного бокса лежит ЗА пределами вписанной
+   окружности, поэтому там кнопку и не было видно. Сажаем её на диагональ
+   от центра круга к верхнему углу, с небольшим выносом за край окружности.
+*/
+.bubble.media-only .media-frame .video-note-box .media-expand-btn{
+  top:0; right:0; transform:translate(35%,-35%);
+}
+.bubble.media-only .media-frame .video-note-box video{
+  display:block; width:100%; height:100%; object-fit:cover; object-position:center; border-radius:50%;
+}
+.bubble.media-only.video-note .bubble-time.overlay{
+  /* Пузырь теперь обрезается по кругу (overflow:hidden + border-radius:50%
+     выше) - угловая позиция обычного медиа-таймстампа (right/bottom из
+     .bubble-time.overlay ниже) попадала бы за пределы круга и была бы
+     невидимой. Центрируем по нижней точке круга, где клип ещё не режет. */
+  right:auto; left:50%; bottom:6px; transform:translateX(-50%);
+}
+
+/* Плашка "нажмите, чтобы загрузить видео" - показывается вместо автозагрузки,
+   когда в настройках включено "Не загружать видео автоматически" (см.
+   features/profile.js, ui/chat-view/media-loader.js:_loadMediaOrDeferForVideo). Использует
+   ту же рамку 16:9 (.video-ratio-box), что и обычное загруженное видео - так
+   это выглядит как настоящее превью видео с кнопкой Play, а не строка текста. */
+.video-tap-load{ cursor:pointer; }
+.video-tap-load-overlay{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+}
+.video-tap-load-play{
+  display:flex; align-items:center; justify-content:center;
+  width:52px; height:52px; border-radius:50%;
+  background:rgba(0,0,0,.5); color:#fff; font-size:1.25rem;
+  padding-left:4px; /* оптический центр треугольника play чуть смещён вправо */
+}
+
+/* Заглушка "нажмите, чтобы загрузить картинку" (см. features/image-settings.js,
+   ЧАСТЬ 1/2 - riedchat-p5-remaining.md). Переиспользует ту же 16:9-рамку и
+   круглый оверлей, что и video-tap-load выше, только с другой иконкой без
+   оптического сдвига треугольника play. */
+.image-tap-load{ cursor:pointer; }
+.image-tap-load .video-tap-load-play{ padding-left:0; font-size:1.4rem; }
+
+/* Время/замок поверх фото или видео - без сплошной чёрной плашки (она выглядела
+   грубым чёрным прямоугольником поверх кадра). Вместо фона - текстовая тень,
+   как в Telegram: белый текст читается на любом фоне сам по себе. */
+.bubble-time.overlay{
+  position:absolute; right:10px; bottom:8px; z-index:2; margin-top:0; opacity:1;
+  background:none; color:#fff; padding:0; border-radius:0;
+  text-shadow: 0 1px 3px rgba(0,0,0,.9), 0 0 8px rgba(0,0,0,.5);
+}

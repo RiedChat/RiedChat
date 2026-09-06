@@ -1,0 +1,96 @@
+/* ---------- APP SHELL ---------- */
+/* height:100vh на мобильных браузерах НЕ уменьшается, когда открывается
+   экранная клавиатура (это старое поведение layout viewport в Safari/Chrome
+   на телефонах) - #app остаётся прежней высоты, клавиатура просто перекрывает
+   собой нижнюю часть экрана, включая последние сообщения и часть композера.
+   #messages при этом честно скроллится в свой "низ" (scrollHeight), но этот
+   низ уже физически скрыт под клавиатурой - визуально это выглядит так,
+   будто новое сообщение "осталось выше", а не появилось внизу.
+   100dvh (динамическая высота viewport) решает это в современных браузерах
+   нативно; JS-фолбэк (--app-vh, см. features/viewport.js) - для WebView без
+   поддержки dvh, через window.visualViewport. Порядок объявлений важен:
+   каждое следующее переопределяет предыдущее в браузерах, которые его
+   понимают, но не ломает поведение в тех, что не понимают. */
+#app{ display:none; height:100vh; height:100dvh; height:var(--app-vh, 100dvh); }
+#app.active{ display:flex; }
+
+/* ---------- SIDEBAR ---------- */
+#sidebar{
+  width:340px; min-width:340px; border-right:1.5px solid var(--ink);
+  display:flex; flex-direction:column; height:100%;
+}
+.sidebar-head{
+  padding:18px 20px 14px; border-bottom:1.5px solid var(--ink);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.sidebar-head-left{ display:flex; align-items:center; gap:10px; min-width:0; }
+.my-avatar-btn{
+  width:32px; height:32px; font-size:0.75rem; padding:0; cursor:pointer;
+  background:var(--paper); color:var(--ink); flex-shrink:0;
+  font-family:inherit; outline:none;
+}
+.my-avatar-btn:hover{ border-color:var(--accent, var(--ink)); }
+.sidebar-title{ font-size:1.375rem; font-weight:800; letter-spacing:-.02em; }
+.sidebar-actions{ display:flex; align-items:center; gap:10px; }
+.icon-mini{
+  width:26px; height:26px; border:1px solid var(--ink-20); background:none; color:var(--ink-60);
+  display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:0.8125rem;
+  border-radius:var(--r-round);
+}
+.icon-mini:hover{ border-color:var(--ink); color:var(--ink); }
+.logout-btn{
+  font-family:'IBM Plex Mono',monospace; font-size:0.6562rem; text-transform:uppercase;
+  letter-spacing:.08em; color:var(--ink-40); background:none; cursor:pointer;
+  border:1px solid var(--ink-20); padding:6px 12px; border-radius:var(--r-round);
+}
+.logout-btn:hover{ border-color:var(--warn); color:var(--warn); }
+.search-wrap{ padding:12px 20px; border-bottom:1px solid var(--ink-10); }
+.search-wrap input{
+  width:100%; border:1.5px solid var(--ink-10); padding:10px 16px; font-size:0.875rem;
+  font-family:'Inter',sans-serif; outline:none; background:var(--paper);
+  border-radius:var(--r-round);
+}
+.search-wrap input:focus{ border-color:var(--ink); }
+#roster{ flex:1; overflow-y:auto; padding:4px 8px; }
+.roster-item{
+  display:flex; align-items:center; gap:12px; padding:11px 12px; cursor:pointer;
+  border-radius:var(--r-md); position:relative;
+}
+.roster-item:hover{ background:var(--ink-05); }
+.roster-item.active{ background:var(--ink); color:var(--paper); }
+.avatar{
+  width:42px; height:42px; border-radius:50%; border:1.5px solid var(--ink);
+  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.9375rem;
+  flex-shrink:0; overflow:hidden;
+}
+.avatar img{ width:100%; height:100%; object-fit:cover; }
+.roster-item.active .avatar{ border-color:var(--paper); }
+.roster-meta{ flex:1; min-width:0; }
+.roster-name{ font-weight:600; font-size:0.9062rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; }
+.roster-sub{
+  font-size:0.75rem; color:var(--ink-40); font-family:'IBM Plex Mono',monospace;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;
+}
+.roster-item.active .roster-sub{ color:var(--paper-70); }
+.presence-dot{ width:9px; height:9px; border-radius:50%; border:2px solid var(--paper); position:absolute; left:42px; top:32px; background:var(--ink-20); }
+.roster-item.active .presence-dot{ border-color:var(--ink); }
+.presence-dot.online{ background:var(--ink); }
+.roster-item.active .presence-dot.online{ background:var(--paper); }
+
+/* Счётчик непрочитанных сообщений - показывается справа от последней строки,
+   когда в S.messages[jid] есть входящие с read:false (см. ui/roster.js). */
+.roster-unread{
+  min-width:19px; height:19px; padding:0 6px; border-radius:var(--r-round); background:var(--warn);
+  color:var(--paper); font-size:0.6875rem; font-weight:700; display:flex; align-items:center; justify-content:center;
+  flex-shrink:0; font-family:'IBM Plex Mono',monospace;
+}
+.roster-item.active .roster-unread{ background:var(--paper); color:var(--warn); }
+.roster-empty{ padding:40px 24px; color:var(--ink-40); font-size:0.8125rem; font-family:'IBM Plex Mono',monospace; line-height:1.6; }
+
+.add-contact{
+  margin:6px 12px 12px; border:1.5px solid var(--ink-20); border-radius:var(--r-md); padding:13px 16px; cursor:pointer;
+  font-family:'IBM Plex Mono',monospace; font-size:0.75rem; text-transform:uppercase;
+  letter-spacing:.08em; display:flex; align-items:center; gap:8px; color:var(--ink-60);
+}
+.add-contact:hover{ color:var(--ink); border-color:var(--ink); }
+.add-contact .plus{ font-size:1rem; font-weight:700; }

@@ -1,0 +1,387 @@
+{
+  "login": {
+    "brandLine": "XMPP / WEBSOCKET CLIENT",
+    "title": "RiedChat",
+    "encryptionNotice": "OMEMO encryption is on by default",
+    "wsUrlLabel": "WebSocket address (wss://...)",
+    "jidLabel": "JID (user@domain)",
+    "passwordLabel": "Password",
+    "rememberMe": "Remember this account on this device",
+    "passwordHint": "The password is stored on the device encrypted (AES-GCM); the key is protected by device biometrics/PIN (WebAuthn) or a separate passphrase.",
+    "connectBtn": "Log in",
+    "forgetBtn": "Forget",
+    "savedAccount": "saved: {jid}",
+    "fillAllFields": "fill in all fields",
+    "wsUrlMustBeWss": "the server address must start with wss:// (unencrypted ws:// is only allowed for localhost)"
+  },
+  "sidebar": {
+    "myProfileTitle": "My profile: nickname and avatar",
+    "logoutTitle": "Log out of account",
+    "logoutBtn": "Log out",
+    "searchPlaceholder": "Search",
+    "addContact": "Add contact",
+    "emptyStateTitle": "RiedChat",
+    "emptyStateHint": "Select a contact on the left",
+    "rosterEmptyHtml": "No contacts yet.<br>Tap «Add contact» below."
+  },
+  "roster": {
+    "youPrefix": "you: ",
+    "fileFallback": "[file]",
+    "quotedPrefix": "↩ {quoted}",
+    "omemoAvailableTitle": "OMEMO available"
+  },
+  "chatHead": {
+    "online": "online",
+    "offline": "offline",
+    "encryptionUnavailable": "🔓 encryption unavailable",
+    "noOmemo": "🔓 contact has no OMEMO",
+    "encryptionOff": "🔓 encryption disabled",
+    "omemoOn": "🔒 OMEMO",
+    "replyVerb": "Reply",
+    "editVerb": "Editing",
+    "cancelEditTitle": "Click to cancel editing",
+    "cancelReplyTitle": "Click to cancel the reply"
+  },
+  "modals": {
+    "deleteBtn": "Delete",
+    "cancelBtn": "Cancel",
+    "clearChatTitle": "Clear chat history?",
+    "clearChatDesc": "The entire conversation with «{name}» will be deleted from this device and cannot be recovered. The other person is not affected.",
+    "chatCleared": "chat history cleared",
+    "logoutTitle": "Log out and delete data from this device?",
+    "logoutDescWithJid": "The session ({jid}) will be closed. All chat history, media cache and OMEMO keys for this account will be permanently deleted from THIS device. The other person is not affected.",
+    "logoutDescNoJid": "The session will be closed and local data for this account will be deleted from this device."
+  },
+  "security": {
+    "identityChangedTitle": "Contact's security key has changed",
+    "identityChangedDesc": "One of the contact's devices has a new encryption key - this can happen after reinstalling the client, but it can also mean a man-in-the-middle attack. Verify the fingerprint manually if this matters to you.",
+    "checkFingerprint": "Verify fingerprint",
+    "gotIt": "Got it",
+    "newDeviceTitle": "Contact has a new device",
+    "newDeviceDesc": "The contact has connected a new device (id {ids}) - messages are now encrypted for it as well. Verify the fingerprint if you want to be sure it's really them.",
+    "pendingDeviceTitle": "Contact's new device not accepted",
+    "pendingDeviceDesc": "The contact has another device (id {ids}), but the limit of remembered keys for them is already reached. Messages from this device won't be decrypted until you replace or remove one of the already remembered keys.",
+    "openOmemoMenu": "Open OMEMO menu",
+    "later": "Later"
+  },
+  "vault": {
+    "setupTitle": "Create a passphrase",
+    "unlockTitle": "Enter your passphrase",
+    "setupDesc": "Device biometrics/PIN are unavailable - the saved account will be protected by this passphrase instead. It is never stored anywhere; if you forget it, you'll have to log in again and re-save the account.",
+    "unlockDesc": "The passphrase that previously protected the saved account on this device is required.",
+    "placeholder": "passphrase",
+    "continueBtn": "Continue",
+    "emptyError": "enter a passphrase",
+    "errors": {
+      "notSetup": "vault is not set up",
+      "androidBridgeUnavailable": "AndroidVaultBridge is unavailable on this device",
+      "passphraseRequired": "a passphrase is required",
+      "passphraseCancelled": "passphrase entry was cancelled",
+      "unknownMode": "unknown vault mode: {mode}",
+      "setupPassphraseRequired": "a passphrase is required to set up the vault",
+      "setupCancelled": "vault setup was cancelled",
+      "webauthnPrfUnsupported": "the authenticator does not support the WebAuthn PRF extension",
+      "webauthnNoPrfSecret": "the authenticator did not return a PRF value",
+      "androidBridgeUnknownError": "android vault bridge: unknown error",
+      "androidBridgeTimeout": "android vault bridge: timed out waiting for a response (biometrics/PIN not confirmed?)"
+    }
+  },
+  "common": {
+    "you": "You",
+    "fileFallbackWord": "file",
+    "fileReadFailed": "failed to read the file",
+    "imageDecodeFailed": "failed to decode the image",
+    "dbTimeoutFallback": "the \"{dbName}\" database did not open within 8s - it is likely locked by another open tab/window"
+  },
+  "chatControls": {
+    "omemoOffBtn": "🔒 Turn off OMEMO",
+    "omemoOnBtn": "🔓 Turn on OMEMO",
+    "omemoOnTitle": "OMEMO is on (click to turn off)",
+    "omemoOffTitle": "OMEMO is off (click to turn on)",
+    "omemoOnToast": "OMEMO turned on - messages will be encrypted",
+    "omemoOffToast": "OMEMO turned off - messages will be sent unencrypted"
+  },
+  "voiceRecorder": {
+    "selectContactFirst": "select a contact first",
+    "notSupported": "audio recording is not supported by this browser",
+    "noMicAccess": "no access to the microphone: {detail}",
+    "startFailed": "failed to start recording: {error}",
+    "chatClosedNotSent": "chat is closed - voice message not sent"
+  },
+  "wallpaper": {
+    "needImageFile": "an image file is needed",
+    "gifTooLarge": "GIF is too large (max 4 MB) - choose a smaller file",
+    "imageProcessError": "failed to process the image: {error}"
+  },
+  "videoNote": {
+    "cameraSwitchFailed": "failed to switch camera: {detail}",
+    "chatClosedNotSent": "chat is closed - video not sent",
+    "selectContactFirst": "select a contact first",
+    "notSupported": "video recording is not supported by this browser",
+    "noCameraAccess": "no access to camera/microphone: {detail}",
+    "startFailed": "failed to start video recording: {error}"
+  },
+  "stickers": {
+    "already": "Already added",
+    "add": "Add",
+    "adding": "Adding…",
+    "added": "Added ✓",
+    "countSuffix": "{count} stickers",
+    "addFailed": "failed to add the pack",
+    "loadFailed": "⚠️ failed to load the sticker pack",
+    "createPackFirst": "create a pack first",
+    "deleteStickerTitle": "Delete sticker?",
+    "deleteStickerDesc": "You won't be able to send it until you upload it again.",
+    "selectPackFirst": "select a pack first",
+    "sentPack": "pack «{name}» sent",
+    "sendFailed": "failed to send the pack",
+    "deletePackTitle": "Delete pack",
+    "deleteStickerBtnTitle": "Delete sticker",
+    "newPackTitle": "New pack",
+    "addStickerTitle": "Add sticker",
+    "noPacksYet": "No packs yet - tap «+» on the left to create the first one.",
+    "loadingPack": "loading sticker pack…",
+    "defaultPackName": "My pack",
+    "nothingToSend": "the pack has no stickers - nothing to send",
+    "addStickerFailed": "failed to add sticker",
+    "addedCount": "{count} stickers added",
+    "oneAdded": "sticker added",
+    "deletePackConfirmTitle": "Delete pack “{name}”?",
+    "deletePackConfirmDesc": "All stickers inside the pack will be deleted permanently.",
+    "archiveEmpty": "the archive has no stickers",
+    "decryptPackFailed": "failed to decrypt the pack",
+    "loadingPackSuffix": "while loading the pack",
+    "dbTimeout": "the sticker database did not open within 8s - it is likely locked by another open tab",
+    "txAborted": "sticker database operation was aborted",
+    "unsupportedFormat": "only PNG, WEBP, JPG/JPEG, HEIC and GIF are supported",
+    "tooLarge": "the file is too large (max 5 MB) - choose a smaller file"
+  },
+  "profile": {
+    "needImageFile": "an image file is needed",
+    "imageProcessError": "failed to process the image: {error}",
+    "saved": "profile saved",
+    "offlineNotice": "you're offline - the profile will be sent to contacts on next connection",
+    "broadcasted": "profile sent to contacts",
+    "broadcastError": "failed to send the profile: {error}"
+  },
+  "search": {
+    "notFoundInView": "message not found in the current chat view",
+    "openChatFirst": "open a chat first",
+    "placeholderText": "Enter text to search",
+    "placeholderFile": "Search by file name (optional)",
+    "placeholderOptional": "Optional",
+    "enterWord": "Enter a word to search",
+    "noMatches": "No matches found",
+    "noAttachments": "No attachments found",
+    "decryptFailed": "decryption failed"
+  },
+  "select": {
+    "countLabel": "Selected: {count}",
+    "deleteOneConfirm": "Delete message?",
+    "deleteManyConfirm": "Delete messages ({count})?",
+    "deleteDesc": "The messages will only be deleted on this device - they will remain for the contact and on your other devices.",
+    "deletingMessagesLabel": "deleting messages",
+    "oneDeleted": "Message deleted",
+    "manyDeleted": "Messages deleted"
+  },
+  "copyDownload": {
+    "fileLoading": "File is still loading - please wait",
+    "downloadStarted": "Download started",
+    "textCopied": "Text copied",
+    "copyFailed": "Failed to copy text"
+  },
+  "fontSettings": {
+    "removed": "custom font removed",
+    "uploadFirst": "upload a font file first",
+    "customFilePrefix": "My file: {name}",
+    "fontFallback": "font",
+    "uploadedFallback": "font uploaded",
+    "invalidExt": "a font file is needed: .ttf, .otf, .woff or .woff2",
+    "noFontData": "no font data",
+    "tooLarge": "the font file is too large (max 3 MB) - choose a smaller file",
+    "appliedSuccess": "font uploaded and applied in chat",
+    "parseError": "failed to parse the font file"
+  },
+  "files": {
+    "tooMany": "you can only send up to {max} files at once - taking the first {max}"
+  },
+  "call": {
+    "ringingInVideo": "Incoming video call",
+    "ringingInAudio": "Incoming audio call",
+    "ringingOutVideo": "Calling (video)...",
+    "ringingOutAudio": "Calling...",
+    "connecting": "Connecting...",
+    "active": "Connected",
+    "callInterrupted": "Call dropped",
+    "connectionFailed": "Failed to establish connection",
+    "log": {
+      "ended": "Call ended",
+      "declined": "Declined call",
+      "missed": "Missed call",
+      "busy": "Call not answered (busy)",
+      "cancelled": "Call cancelled"
+    },
+    "fail": {
+      "noDevices": "No OMEMO devices found for the contact - a call is not possible without encryption.",
+      "allDevicesDead": "Failed to establish an OMEMO session with any of the contact’s devices.",
+      "omemoUnavailable": "OMEMO unavailable - a call is not possible without signaling encryption.",
+      "sendError": "Failed to send the call signal.",
+      "alreadyInCall": "There is already an active call.",
+      "mediaError": "Failed to access the camera/microphone.",
+      "insecureContext": "Calls are unavailable: open the page over https:// (or localhost) - otherwise the browser blocks camera/microphone access.",
+      "negotiationError": "Failed to establish the connection.",
+      "noIncomingCall": "The call has already ended.",
+      "startFailed": "Failed to start the call",
+      "acceptFailed": "Failed to accept the call"
+    },
+    "contactCallingSomeoneElse": "The contact is currently calling someone else",
+    "contactAlreadyTalking": "The contact is already on a call",
+    "cameraSwitchFailed": "failed to switch camera: {detail}",
+    "minimizeTitle": "Minimize call",
+    "returnBannerVideo": "Video call in progress - return",
+    "returnBannerAudio": "Call in progress - return"
+  },
+  "dates": {
+    "today": "today",
+    "yesterday": "yesterday",
+    "dayBeforeYesterday": "the day before yesterday",
+    "lastSeenPrefix": "last seen {value}"
+  },
+  "media": {
+    "loading": "loading media…",
+    "loadingPercent": "loading media… {percent}%",
+    "decryptFailed": "failed to decrypt file (open link)",
+    "openFullscreen": "Open fullscreen",
+    "downloadFile": "download file",
+    "kindImage": "Photo",
+    "kindVideo": "Video",
+    "kindAudio": "Voice message",
+    "kindFile": "File",
+    "kindStickerpack": "Sticker pack",
+    "kindVideoNote": "Video note",
+    "kindSticker": "Sticker"
+  },
+  "message": {
+    "read": "Read",
+    "sent": "Sent",
+    "notEncrypted": "not encrypted",
+    "corrupted": "message is corrupted and cannot be shown",
+    "edited": "edited"
+  },
+  "chatView": {
+    "unreadDivider": "Unread messages",
+    "downgradeBanner": "received unencrypted, though this chat is usually encrypted",
+    "chatHistoryLabel": "chat history"
+  },
+  "fingerprintModal": {
+    "verified": "verified",
+    "markVerified": "mark as verified",
+    "forget": "forget",
+    "devicePrefix": "device",
+    "noSession": "no session",
+    "noFingerprint": "no fingerprint",
+    "limitReachedTitle": "New contact device (device limit reached)",
+    "replaceOneOf": "Replace one of the remembered devices",
+    "replaceAndAccept": "Replace and accept new",
+    "rejectNewDevice": "Reject new device",
+    "pendingReverify": "The contact recently changed their encryption key - the fingerprint will reappear here once a new secure session is established with the device.",
+    "noDevices": "No OMEMO devices found for this contact.",
+    "noActiveDevices": "No active devices - see below.",
+    "orphanedTitle": "Outdated keys (device no longer used by the contact)",
+    "loading": "loading...",
+    "unavailable": "unavailable",
+    "openChatFirst": "Open a chat with the contact."
+  },
+  "voicePlayer": {
+    "play": "Play",
+    "untitled": "Untitled"
+  },
+  "vcard": {
+    "noConnection": "no connection",
+    "updateRejected": "server rejected the vCard update"
+  },
+  "upload": {
+    "selectContactFirst": "select a contact first",
+    "serviceNotFound": "file upload service not found",
+    "largeFileNoE2E": "the file is larger than {size} MB - uploading without OMEMO attachment encryption (plain HTTPS link) to avoid overloading tab memory",
+    "plainLinkWarning": "note: the file is being uploaded via a plain HTTPS link (not OMEMO) - anyone with the link can see it",
+    "httpError": "upload error: HTTP {status}",
+    "tooLargeSuffix": " - the file is too large",
+    "networkError": "the network connection dropped while uploading the file - see details at the bottom of the screen, in the debug log",
+    "timeoutError": "the upload was interrupted by timeout",
+    "cancelled": "upload cancelled",
+    "slotRejected": "the server rejected the slot request",
+    "mixedContent": "error: the upload server returned an http link while the page is open over https (mixed content) - contact the server administrator",
+    "slotNotIssued": "slot not issued: {detail}",
+    "slotLimitReached": "the file exceeds the server limit",
+    "slotNoResponse": "the server did not respond in time (overloaded?) - try again"
+  },
+  "history": {
+    "noSpace": "not enough space on the device to save chat history - free up some space (e.g. clear the media cache) ",
+    "saveFailed": "failed to save {context} on the device: {detail}",
+    "ctxStickerLink": "sticker link cache",
+    "ctxChatHistory": "chat history",
+    "ctxImportedMam": "history imported from MAM",
+    "dbTimeout": "the chat history database did not open within 8s - it is likely locked by another open tab/window of this chat",
+    "dbLocked": "chat history won't open: close other tabs/windows with this chat and refresh the page"
+  },
+  "messaging": {
+    "newDeviceUndecrypted": "{name} has a new device - the message wasn't decrypted, make a decision in the OMEMO menu (⋮)",
+    "editNotFound": "Couldn't find the message to edit",
+    "actionMessage": "Message",
+    "actionCorrection": "Correction",
+    "omemoPlaceholder": "This message is OMEMO-encrypted - update your client to read it.",
+    "reasonAllDevicesDead": "Failed to establish an OMEMO session with any of the contact's devices (keys may have expired).",
+    "reasonNoDevices": "No OMEMO devices found for the contact.",
+    "attachmentKeyWarning": "{reason} The attachment is encrypted, but the decryption key can only be sent as plain text - the server and anyone intercepting traffic will get access to the file. Send the link with the key unencrypted?",
+    "plaintextWarning": "{reason} The {action} can only be sent as plain text. Send it?",
+    "confirmTitle": "Send unencrypted?",
+    "confirmOk": "Send unencrypted",
+    "confirmCancel": "Don't send",
+    "fallbackNoSession": "failed to establish an OMEMO session with any of the contact's devices (expired keys?) - sent unencrypted",
+    "fallbackNoDevices": "no OMEMO devices found for the contact - sent unencrypted"
+  },
+  "netRoster": {
+    "loadFailed": "failed to load the contact list",
+    "requestSent": "add request sent",
+    "addFailed": "failed to add the contact"
+  },
+  "presence": {
+    "subscribeTitle": "Request to view your status",
+    "subscribeDesc": "Contact {name} ({jid}) wants to see your status (online/offline, last seen time). Allow?",
+    "allow": "Allow",
+    "decline": "Decline"
+  },
+  "mam": {
+    "synced": "chat history synced with the server (MAM)"
+  },
+  "connection": {
+    "loadHistoryFailed": "failed to load local chat history: {detail}",
+    "settingUpOmemo": "setting up OMEMO encryption...",
+    "omemoUnavailable": "OMEMO unavailable: {detail}",
+    "omemoReady": "OMEMO ready - messages are encrypted by default",
+    "connectingStatus": "connecting...",
+    "establishing": "establishing connection...",
+    "connectFailed": "failed to connect (check the WebSocket address)",
+    "wrongCredentials": "wrong JID or password",
+    "restoreFailedNetwork": "failed to restore the connection - check your network",
+    "restoreFailedWrongPassword": "failed to restore the connection: wrong password",
+    "disconnected": "connection closed",
+    "saveAccountFailed": "failed to save the account on the device: {detail}",
+    "connectionLost": "connection lost - please log in again"
+  },
+  "omemo": {
+    "notReady": "[received an OMEMO-encrypted message, but the encryption module isn't ready]",
+    "pendingDeviceMessage": "[message not received: the contact has a new device, the remembered-key limit is reached - open the OMEMO menu (⋮) and make a decision]",
+    "sessionBroken": "[failed to decrypt the message: the session is broken or the device was reset]",
+    "integrityFailed": "[failed to decrypt the message content: integrity check failed]",
+    "decryptFailed": "[failed to decrypt the message content]",
+    "insecureContext": "OMEMO unavailable: open the page over https:// (or localhost) - otherwise the browser blocks the Web Crypto API",
+    "libraryNotLoaded": "OMEMO unavailable: the encryption library failed to load (network/blockers?)",
+    "keyInitError": "OMEMO unavailable: key initialization error - {detail}",
+    "publishFailed": "keys were created but not published to the server (no PEP?): {detail}",
+    "pepNoResponse": "no response/timeout",
+    "dbTimeout": "the OMEMO key database did not open within 8s - it is likely locked by another open tab/window of this chat",
+    "dbLocked": "the OMEMO key storage won't open: close other tabs/windows with this chat and reload the page"
+  }
+}

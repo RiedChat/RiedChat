@@ -1,0 +1,68 @@
+/* ---------- CHAT AREA / HEADER ---------- */
+#chat-area{ flex:1; display:flex; flex-direction:column; height:100%; min-width:0; }
+.chat-head{
+  padding:13px 28px; border-bottom:1.5px solid var(--ink);
+  display:flex; align-items:center; gap:14px;
+}
+.chat-head .avatar{ width:38px; height:38px; font-size:0.8125rem; }
+.chat-head-title{ min-width:0; overflow:hidden; }
+.chat-head-name{ font-weight:700; font-size:1rem; display:flex; align-items:center; gap:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-head-sub{ font-size:0.7188rem; color:var(--ink-40); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-head-right{ margin-left:auto; position:relative; display:flex; align-items:center; gap:8px; }
+
+/* ---------- Меню чата "⋮" (поиск / OMEMO / очистка истории) ----------
+   Раньше это были отдельные иконки в шапке - теперь собраны в одну выпадающую
+   панель под кнопкой с тремя точками, чтобы не загромождать шапку рядом с ником. */
+.chat-menu-btn{ font-size:1.25rem; font-weight:700; }
+.chat-menu-dropdown{
+  display:none; flex-direction:column; gap:2px;
+  position:absolute; top:calc(100% + 8px); right:0; z-index:20;
+  background:var(--paper); border:1.5px solid var(--ink); border-radius:var(--r-md);
+  min-width:236px; padding:6px; box-shadow:0 10px 28px rgba(0,0,0,.4);
+}
+.chat-menu-dropdown.open{ display:flex; }
+.chat-menu-item{
+  display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+  border:none; background:none; color:var(--ink); font-family:'Inter',sans-serif;
+  font-size:0.8438rem; padding:11px 12px; border-radius:var(--r-sm); cursor:pointer;
+  white-space:nowrap; text-transform:none; letter-spacing:normal;
+}
+.chat-menu-item:hover{ background:var(--ink-05); }
+.chat-menu-item-danger{ color:var(--danger); }
+/* .omemo-badge переиспользуется как пункт меню - сбрасываем его исходный вид
+   "пилюли" (border/padding/цвет по состоянию) под общий стиль строки меню,
+   цвет статуса (ok/warn/выкл) при этом сохраняем через модификаторы ниже. */
+.chat-menu-dropdown .omemo-badge{
+  border:none; border-radius:var(--r-sm); padding:11px 12px; font-size:0.8438rem;
+  font-family:'Inter',sans-serif; text-transform:none; letter-spacing:normal; color:var(--ok);
+}
+.chat-menu-dropdown .omemo-badge:hover{ background:var(--ink-05); }
+.chat-menu-dropdown .omemo-badge.off{ color:var(--warn); }
+.chat-menu-dropdown .omemo-badge.unavailable{ color:var(--ink-40); }
+
+.omemo-badge{
+  display:inline-flex; align-items:center; gap:5px; font-size:0.6562rem; font-family:'IBM Plex Mono',monospace;
+  text-transform:uppercase; letter-spacing:.06em; padding:5px 11px; border:1px solid var(--ok); color:var(--ok);
+  cursor:pointer; white-space:nowrap; border-radius:var(--r-round);
+}
+.omemo-badge.off{ border-color:var(--warn); color:var(--warn); }
+.omemo-badge.unavailable{ border-color:var(--ink-20); color:var(--ink-40); }
+/* header-icon-btn - общий круглый стиль иконок в шапке (сейчас только кнопка "⋮") */
+.header-icon-btn{ width:34px; height:34px; font-size:0.9375rem; border-width:1px; border-radius:var(--r-round); }
+
+/* Плашка "вернуться к звонку" - появляется под шапкой чата, когда открыт
+   чат с собеседником, с которым сейчас идёт свёрнутый звонок (см.
+   ui/chat-head.js:renderCallBanner, дёргается из renderCallUI и openChat). */
+.call-return-banner{
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  width:100%; border:none; cursor:pointer;
+  background:var(--ok); color:#fff; font-family:'Inter',sans-serif;
+  font-size:0.8438rem; font-weight:600; padding:10px 16px;
+}
+.call-return-banner[hidden]{ display:none; }
+
+#empty-state{
+  flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:10px;
+}
+#empty-state .glyph{ font-size:3.25rem; font-weight:800; letter-spacing:-.03em; }
+#empty-state p{ color:var(--ink-40); font-family:'IBM Plex Mono',monospace; font-size:0.75rem; text-transform:uppercase; letter-spacing:.1em; }

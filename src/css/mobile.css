@@ -1,0 +1,33 @@
+.back-btn{ display:none; }
+
+/* ---------- MOBILE ---------- */
+@media (max-width: 768px){
+  .login-box{ width:100%; padding:0 8px; }
+  #app{ position:relative; overflow:hidden; }
+  #sidebar{
+    width:100%; min-width:100%; border-right:none;
+    position:absolute; inset:0; z-index:5;
+  }
+  #chat-area{
+    position:absolute; inset:0; transform:translateX(100%); z-index:6;
+  }
+  #app.mobile-chat-open #sidebar{ transform:translateX(-100%); }
+  #app.mobile-chat-open #chat-area{ transform:translateX(0); }
+  .back-btn{
+    display:flex; width:36px; height:36px; border:1.5px solid var(--ink); background:none; color:var(--ink);
+    align-items:center; justify-content:center; cursor:pointer; font-size:1rem; flex-shrink:0;
+    border-radius:var(--r-round);
+  }
+  .bubble{ max-width:82%; }
+  .bubble img{ max-width:min(192px, 62vw); max-height:45vh; }
+  .bubble .video-ratio-box{ width:min(312px, 90vw); }
+  .bubble.media-only .media-frame img{ max-width:min(208px, 62vw); max-height:45vh; }
+  .bubble.media-only .media-frame .video-ratio-box{ width:min(338px, 90vw); }
+  #messages{ padding:16px; }
+  #composer{ padding:10px 14px; }
+  .chat-head{ padding:10px 14px; }
+  .sidebar-head{ padding:14px 16px 12px; }
+  .search-wrap{ padding:10px 16px; }
+  .roster-item{ padding:12px 16px; }
+  #empty-state .glyph{ font-size:2.25rem; } /* «RiedChat» длиннее старого «chat.» - на узком экране крупный размер не влезал бы */
+}

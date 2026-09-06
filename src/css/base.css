@@ -1,0 +1,75 @@
+:root{
+  --ink:#fff;
+  --paper:#000;
+  --ink-05: rgba(255,255,255,.06);
+  --ink-10: rgba(255,255,255,.12);
+  --ink-20: rgba(255,255,255,.24);
+  --ink-40: rgba(255,255,255,.45);
+  --ink-60: rgba(255,255,255,.65);
+  --paper-10: rgba(0,0,0,.10);
+  --paper-40: rgba(0,0,0,.40);
+  --paper-70: rgba(0,0,0,.70);
+  --ok:#3ddc84;
+  --warn:#ffb020;
+  --danger:#ff4b4b;
+  --r-sm:10px;
+  --r-md:16px;
+  --r-lg:22px;
+  --r-round:999px;
+
+  /* Настройки шрифта сообщений (см. features/font-settings.js) - намеренно
+     НЕ трогают весь интерфейс, а только текст внутри #messages (см.
+     css/messages.css): --chat-font-family подменяет шрифт текста сообщений,
+     --chat-font-size задаёт размер текста пузырька, остальные размеры внутри
+     сообщения (время, имя в цитате, системные плашки) масштабируются
+     пропорционально через calc() в messages.css. */
+  --chat-font-family: inherit;
+  --chat-font-size: 0.9062rem; /* исходный размер текста пузырька (14.5px при 16px корне) */
+}
+/* Светлая тема (features/theme-settings.js) - переключается атрибутом
+   data-theme на <html>, хранится в localStorage. Просто зеркалим ink/paper
+   и их прозрачные оттенки: --ink - цвет текста/обводок, --paper - цвет
+   фона, остальные --ink-XX/--paper-XX - их полупрозрачные вариации,
+   используемые по всему интерфейсу (хедер, сайдбар, пузыри, модалки).
+   Оверлеи поверх медиа (видео-плеер, полноэкранный просмотр, кружок при
+   записи) намеренно остаются тёмными в обеих темах - так же, как в
+   Telegram/WhatsApp - и переменные не используют, темой не затрагиваются. */
+:root[data-theme="light"]{
+  --ink:#000;
+  --paper:#fff;
+  --ink-05: rgba(0,0,0,.06);
+  --ink-10: rgba(0,0,0,.12);
+  --ink-20: rgba(0,0,0,.24);
+  --ink-40: rgba(0,0,0,.45);
+  --ink-60: rgba(0,0,0,.65);
+  --paper-10: rgba(255,255,255,.10);
+  --paper-40: rgba(255,255,255,.40);
+  --paper-70: rgba(255,255,255,.70);
+}
+*{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+html,body{height:100%;}
+/* Явно сообщаем браузеру/WebView, что страница тёмная: некоторые мобильные браузеры
+   и WebView-обёртки (форс-тёмная/форс-светлая тема) иначе сами перекрашивают текстовые
+   поля системными цветами, из-за чего вводимый текст мог становиться чёрным на чёрном. */
+html{ color-scheme: dark; }
+html[data-theme="light"]{ color-scheme: light; }
+body{
+  font-family:'Inter',sans-serif;
+  background:var(--paper);
+  color:var(--ink);
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:'IBM Plex Mono',monospace;}
+
+/* Принудительно задаём цвет вводимого текста и курсора на всех полях, чтобы никакая
+   авто-тёмная/авто-светлая эвристика браузера не подменяла его системным. */
+input, textarea{
+  color: var(--ink);
+  caret-color: var(--ink);
+  -webkit-text-fill-color: var(--ink);
+}
+
+::-webkit-scrollbar{ width:8px; }
+::-webkit-scrollbar-thumb{ background:var(--ink-20); }
+::-webkit-scrollbar-track{ background:transparent; }
