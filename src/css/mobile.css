@@ -14,10 +14,12 @@
   #app.mobile-chat-open #sidebar{ transform:translateX(-100%); }
   #app.mobile-chat-open #chat-area{ transform:translateX(0); }
   .back-btn{
-    display:flex; width:36px; height:36px; border:1.5px solid var(--ink); background:none; color:var(--ink);
-    align-items:center; justify-content:center; cursor:pointer; font-size:1rem; flex-shrink:0;
+    display:flex; width:36px; height:36px; background:none; color:var(--ink);
+    align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;
     border-radius:var(--r-round);
   }
+  @media (hover: hover) and (pointer: fine){ .back-btn:hover{ background:var(--ink-10); } }
+  .back-btn svg.icon-svg{ width:20px; height:20px; }
   .bubble{ max-width:82%; }
   .bubble img{ max-width:min(192px, 62vw); max-height:45vh; }
   .bubble .video-ratio-box{ width:min(312px, 90vw); }

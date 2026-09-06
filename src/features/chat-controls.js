@@ -4,11 +4,24 @@
 // модалки отпечатков.
 import { $, toast, wireModalDismiss } from '../core/dom-utils.js';
 import { persistLastScreen } from '../core/last-seen-storage.js';
+import { html, raw, setHTML } from '../core/safe-html.js';
 import { omemo } from '../crypto/omemo/state.js';
 import { openFingerprintModal } from '../ui/fingerprint-modal.js';
 import { updateOmemoBadge } from '../ui/chat-head.js';
 import { clearActiveChat, logout } from '../ui/modals.js';
 import { t } from '../i18n/t.js';
+import { ICON_LOCK_CLOSED, ICON_LOCK_OPEN } from '../core/icons.js';
+
+// Иконка кнопки-переключателя привязана к тому, ЧТО кнопка предлагает
+// сделать (а не к текущему состоянию, как у бейджа рядом): "Выключить" -
+// открытый замок, "Включить" - закрытый.
+function renderOmemoToggle(){
+  const btn = $('omemo-toggle');
+  const icon = omemo.enabled ? ICON_LOCK_OPEN : ICON_LOCK_CLOSED;
+  const label = omemo.enabled ? t('chatControls.omemoOffBtn') : t('chatControls.omemoOnBtn');
+  setHTML(btn, html`${raw(icon)} ${label}`);
+  btn.title = omemo.enabled ? t('chatControls.omemoOnTitle') : t('chatControls.omemoOffTitle');
+}
 
 export function wireChatControls(){
     // ---- mobile back ----
@@ -35,10 +48,10 @@ export function wireChatControls(){
     // ---- OMEMO badge / fingerprints modal ----
     $('omemo-badge').addEventListener('click', () => openFingerprintModal());
     wireModalDismiss('fp-modal', 'fp-modal-close');
+    renderOmemoToggle();
     $('omemo-toggle').addEventListener('click', () => {
       omemo.enabled = !omemo.enabled;
-      $('omemo-toggle').textContent = omemo.enabled ? t('chatControls.omemoOffBtn') : t('chatControls.omemoOnBtn');
-      $('omemo-toggle').title = omemo.enabled ? t('chatControls.omemoOnTitle') : t('chatControls.omemoOffTitle');
+      renderOmemoToggle();
       updateOmemoBadge();
       toast(omemo.enabled ? t('chatControls.omemoOnToast') : t('chatControls.omemoOffToast'));
     });

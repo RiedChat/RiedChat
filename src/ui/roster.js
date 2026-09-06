@@ -9,6 +9,7 @@ import { media } from '../net/media.js';
 import { splitQuotedBody } from '../core/text-patterns.js';
 import { mediaLabel } from '../features/message-swipe.js';
 import { t } from '../i18n/t.js';
+import { ICON_LOCK_CLOSED } from '../core/icons.js';
 
 const S = state;
 
@@ -59,7 +60,7 @@ export function renderRoster(){
     row.className = 'roster-item' + (S.activeChat === jid ? ' active' : '');
     const msgs = S.messages[jid] || [];
     const lastMsg = msgs.length ? msgs[msgs.length-1] : null;
-    const lockGlyph = omemo.chatSupport[jid] ? '🔒' : (omemo.chatSupport[jid] === false ? '' : '');
+    const lockGlyph = omemo.chatSupport[jid] ? ICON_LOCK_CLOSED : (omemo.chatSupport[jid] === false ? '' : '');
     const sub = lastMsg ? (lastMsg.out ? t('roster.youPrefix') : '') + previewText(lastMsg) : nickOf(jid);
     const displayName = c.nick || c.name || nickOf(jid);
     // c.avatarUrl - data:-URL, собранный из vCard СОБЕСЕДНИКА (см.

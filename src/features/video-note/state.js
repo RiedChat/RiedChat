@@ -23,4 +23,8 @@ export const S = {
   discardOnStop: false,
   recordedBlob: null,
   recordedUrl: null,
+  // Превью-кадр (base64url JPEG) кружка, снятый ПРЯМО С КАНВАСА записи в
+  // момент остановки (см. recording-stop.js) - уходит вместе с сообщением
+  // (net/upload.js), а не выковыривается потом из готового webm.
+  recordedThumbB64url: null,
 };

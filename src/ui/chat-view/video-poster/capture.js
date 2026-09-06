@@ -1,6 +1,7 @@
 // =============== ui/chat-view/video-poster/capture.js ===============
 // Захват текущего декодированного кадра зонда и запись его в videoEl.poster.
 import { debugLog } from '../../../core/debug-log.js';
+import { onDecodedFrame } from './decoded-frame.js';
 
 export function captureFrame(probe, videoEl, cleanup){
   const grab = () => {
@@ -20,15 +21,5 @@ export function captureFrame(probe, videoEl, cleanup){
     }
     cleanup();
   };
-  // requestVideoFrameCallback - специально созданный для этого API: он
-  // гарантирует, что вызов случится ПОСЛЕ того, как конкретный кадр реально
-  // дошёл до композитора (в отличие от 'seeked', который сообщает только о
-  // смене позиции плейбека, и от requestAnimationFrame, который лишь
-  // приблизительно этот момент угадывает). Поддерживается не везде - там,
-  // где нет, используем двойной requestAnimationFrame как запасной вариант.
-  if(typeof probe.requestVideoFrameCallback === 'function'){
-    probe.requestVideoFrameCallback(grab);
-  } else {
-    requestAnimationFrame(() => requestAnimationFrame(grab));
-  }
+  onDecodedFrame(probe, grab);
 }

@@ -8,7 +8,10 @@ import { omemo } from '../crypto/omemo/state.js';
 import { uploadEncrypt } from './upload/encrypt.js';
 import { uploadSlot } from './upload/slot.js';
 import { uploadTransport } from './upload/transport.js';
-import { sendMessage, notifyEncryptionFallback } from './messaging/outgoing.js';
+import { captureVideoThumb } from './upload/video-thumb.js';
+import { appendThumbToLink } from './media/thumb-codec.js';
+import { sendMessage, notifyEncryptionFallback, buildQuotedBody } from './messaging/outgoing.js';
+import { renderReplyBar } from '../ui/chat-head.js';
 import { media } from './media.js';
 import { history } from './history.js';
 import { t } from '../i18n/t.js';
@@ -36,7 +39,18 @@ export function uploadAndSend(file, queueLabel, opts){
   if(!targetJid){ toast(t('upload.selectContactFirst')); return Promise.resolve(); }
   if(!S.uploadComponentJid){ toast(t('upload.serviceNotFound')); return Promise.resolve(); }
 
-  const run = () => _runUpload(file, queueLabel, targetJid, opts || {});
+  // Активную цитату (см. features/message-swipe/quote.js:startReply) захватываем
+  // ЗДЕСЬ ЖЕ, синхронно, по той же причине, что и targetJid чуть выше: отправка
+  // файла не мгновенная (шифрование, сетевой аплоад, очередь), а раньше эта
+  // функция вообще не заглядывала в S.replyTo - активная цитата над полем ввода
+  // молча терялась, и файл/фото/видео/кружок/стикер всегда уходил ОТДЕЛЬНЫМ
+  // сообщением без её текста/автора, хотя плашка "Ответ ..." оставалась видна
+  // так, будто цитата вот-вот применится. S.replyTo не трогаем и не гасим
+  // немедленно - только если сама отправка успешно случится (см. _clearReplyToIfStillSame
+  // ниже), иначе при ошибке загрузки цитата, как и при обычной текстовой
+  // отправке, должна остаться на месте для повторной попытки.
+  const replyTo = S.replyTo;
+  const run = () => _runUpload(file, queueLabel, targetJid, opts || {}, replyTo);
 
   // Ставим в очередь ПОСЛЕ текущей загрузки (если она ещё идёт), а не
   // запускаем параллельно - чтобы два xhr не писали в один и тот же
@@ -55,7 +69,27 @@ function _stickerCacheKey(stickerId, useE2E){
   return 'stickerLink:' + stickerId + ':' + (useE2E ? 'e2e' : 'plain');
 }
 
-async function _runUpload(file, queueLabel, targetJid, opts){
+// Оборачивает ссылку на файл в блок цитаты (см. net/messaging/outgoing/compose.js:
+// buildQuotedBody), если на момент СТАРТА этой загрузки была активна цитата -
+// иначе просто голая ссылка, как раньше.
+function _composeBody(replyTo, link){
+  return replyTo ? buildQuotedBody(replyTo, link) : link;
+}
+
+// Гасит цитату и плашку над полем ввода ПОСЛЕ успешной отправки - но только если
+// S.replyTo за время загрузки не поменялся на другую (пользователь не отменил и не
+// навёл цитату на другое сообщение, что создаёт новый объект в S.replyTo, и не
+// переключил чат, что явно сбрасывает S.replyTo в null, см. app.js). Сравнение по
+// ссылке (===), а не просто "S.replyTo не null", - иначе можно было бы погасить
+// чужую, уже более новую цитату, зависшую над полем ввода для другого сообщения.
+function _clearReplyToIfStillSame(replyTo){
+  if(replyTo && S.replyTo === replyTo){
+    S.replyTo = null;
+    renderReplyBar();
+  }
+}
+
+async function _runUpload(file, queueLabel, targetJid, opts, replyTo){
   // getDeviceList без forceRefresh: кэш поддерживается актуальным пуш-уведомлениями
   // PEP (см. crypto/omemo/device-list-discovery.js:_applyPushedDeviceList и +notify caps в
   // net/presence/caps.js) - как только собеседник публикует ключи, мы узнаём об этом
@@ -63,6 +97,25 @@ async function _runUpload(file, queueLabel, targetJid, opts){
   const chatIsE2ECapable = omemo.enabled && omemo.ready &&
     (await omemo.getDeviceList(targetJid)).length > 0;
   const {useE2E, skippedForSize, declaredSize} = uploadEncrypt.decide(file, chatIsE2ECapable);
+
+  // Превью-кадр для видео - см. net/media/thumb-codec.js о том, как оно
+  // едет вместе со ссылкой, и net/upload/video-thumb.js/features/video-note/
+  // recording-stop.js о том, как оно добывается. opts.thumbnailB64url уже
+  // готов, если файл - кружок (кадр снят прямо с канваса записи, см.
+  // features/video-note/preview.js); для обычного видеофайла, выбранного
+  // из галереи/файловой системы, считаем его здесь же, ПАРАЛЛЕЛЬНО со
+  // слотом/шифрованием/аплоадом ниже, а не последовательно после них -
+  // декодирование одного кадра в браузере обычно быстрее, чем сама
+  // загрузка файла, так что к моменту отправки сообщения результат уже
+  // готов и отправку лишний раз не задерживает.
+  // Только для useE2E: превью встраивается исключительно в aesgcm-ссылку
+  // (см. ниже) - без OMEMO decode-затраты на кадр были бы чистыми
+  // потерями без потребителя.
+  const kind = media.kindOfMime(file.type) || media.kindOf(media.extOf(file.name || ''));
+  const isVideoFile = kind === 'video';
+  const thumbPromise = !useE2E ? Promise.resolve(null) : (opts.thumbnailB64url
+    ? Promise.resolve(opts.thumbnailB64url)
+    : (isVideoFile ? captureVideoThumb(file) : Promise.resolve(null)));
 
   const cacheKey = opts.stickerCacheId ? _stickerCacheKey(opts.stickerCacheId, useE2E) : null;
   if(cacheKey){
@@ -80,8 +133,9 @@ async function _runUpload(file, queueLabel, targetJid, opts){
       // и после следующей чистки этого меты можно будет форсировать переотправку).
       const linkToSend = useE2E ? uploadEncrypt.buildAesgcmLink(cached.url, cached.aesKeyIvHex) : cached.url;
       media.primeLocalBlob(linkToSend, file);
-      const {fallbackReason} = await sendMessage(targetJid, linkToSend);
+      const {fallbackReason} = await sendMessage(targetJid, _composeBody(replyTo, linkToSend));
       notifyEncryptionFallback(fallbackReason);
+      _clearReplyToIfStillSame(replyTo);
       return;
     }
   }
@@ -129,6 +183,13 @@ async function _runUpload(file, queueLabel, targetJid, opts){
   let linkToSend = slot.getUrl;
   if(aesKeyIvHex){
     linkToSend = uploadEncrypt.buildAesgcmLink(slot.getUrl, aesKeyIvHex);
+    // Превью встраиваем ТОЛЬКО в aesgcm-вариант: только он и получает
+    // специальный рендер (круглый/16:9 плеер с постером, см.
+    // ui/chat-view/message-body-html.js/bubble-renderers.js) - обычная
+    // https-ссылка на видео пока показывается просто ссылкой, встраивать
+    // в неё превью было бы мёртвым грузом без потребителя.
+    const thumbB64url = await thumbPromise;
+    if(thumbB64url) linkToSend = appendThumbToLink(linkToSend, thumbB64url);
   }
   // Файл уже лежит у нас на руках как plaintext (тот же `file`, что
   // грузили) - кладём его в кэш медиа ПОД ТОЙ ЖЕ ссылкой, что уйдёт
@@ -138,8 +199,9 @@ async function _runUpload(file, queueLabel, targetJid, opts){
   if(aesKeyIvHex && linkToSend.startsWith('aesgcm://')){
     media.primeLocalBlob(linkToSend, file);
   }
-  const {fallbackReason} = await sendMessage(targetJid, linkToSend);
+  const {fallbackReason} = await sendMessage(targetJid, _composeBody(replyTo, linkToSend));
   notifyEncryptionFallback(fallbackReason);
+  _clearReplyToIfStillSame(replyTo);
 }
 
 // features/voice-recorder.js и features/file-upload.js уже используют

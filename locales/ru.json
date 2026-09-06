@@ -33,10 +33,10 @@
   "chatHead": {
     "online": "online",
     "offline": "не в сети",
-    "encryptionUnavailable": "🔓 шифрование недоступно",
-    "noOmemo": "🔓 у собеседника нет OMEMO",
-    "encryptionOff": "🔓 шифрование выключено",
-    "omemoOn": "🔒 OMEMO",
+    "encryptionUnavailable": "шифрование недоступно",
+    "noOmemo": "у собеседника нет OMEMO",
+    "encryptionOff": "шифрование выключено",
+    "omemoOn": "OMEMO",
     "replyVerb": "Ответ",
     "editVerb": "Редактирование",
     "cancelEditTitle": "Нажмите, чтобы отменить редактирование",
@@ -94,8 +94,8 @@
     "dbTimeoutFallback": "база \"{dbName}\" не открылась за 8с - вероятно, заблокирована другой открытой вкладкой/окном"
   },
   "chatControls": {
-    "omemoOffBtn": "🔒 Выключить OMEMO",
-    "omemoOnBtn": "🔓 Включить OMEMO",
+    "omemoOffBtn": "Выключить OMEMO",
+    "omemoOnBtn": "Включить OMEMO",
     "omemoOnTitle": "OMEMO включен (нажмите, чтобы выключить)",
     "omemoOffTitle": "OMEMO выключен (нажмите, чтобы включить)",
     "omemoOnToast": "OMEMO включен - сообщения будут шифроваться",

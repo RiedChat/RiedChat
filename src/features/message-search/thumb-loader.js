@@ -24,7 +24,10 @@ async function loadThumb(host, info, senderJid){
     } else {
       setHTML(host, html`<video src="${blobUrl}" muted preload="metadata" playsinline></video>`);
       const videoEl = host.querySelector('video');
-      if(videoEl) setPreviewPoster(videoEl);
+      // Тот же нюанс, что и в media-loader.js: у кружков (category
+      // 'videonote') webm без индекса ключевых кадров - перемотка к
+      // середине там ненадёжна, хватаем первый декодированный кадр.
+      if(videoEl) setPreviewPoster(videoEl, {skipSeek: info.category === 'videonote'});
     }
   }catch(e){
     if(document.body.contains(host)) setHTML(host, raw(thumbFallbackHtml(info)));

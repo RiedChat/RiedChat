@@ -1,19 +1,19 @@
 /* ---------- CHAT AREA / HEADER ---------- */
 #chat-area{ flex:1; display:flex; flex-direction:column; height:100%; min-width:0; }
 .chat-head{
-  padding:13px 28px; border-bottom:1.5px solid var(--ink);
+  padding:13px 28px; border-bottom:1px solid var(--ink);
   display:flex; align-items:center; gap:14px;
 }
 .chat-head .avatar{ width:38px; height:38px; font-size:0.8125rem; }
 .chat-head-title{ min-width:0; overflow:hidden; }
 .chat-head-name{ font-weight:700; font-size:1rem; display:flex; align-items:center; gap:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.chat-head-sub{ font-size:0.7188rem; color:var(--ink-40); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-head-sub{ font-size:0.7188rem; color:var(--ink-40); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.05em; overflow-wrap:break-word; white-space:normal; }
 .chat-head-right{ margin-left:auto; position:relative; display:flex; align-items:center; gap:8px; }
 
 /* ---------- Меню чата "⋮" (поиск / OMEMO / очистка истории) ----------
    Раньше это были отдельные иконки в шапке - теперь собраны в одну выпадающую
    панель под кнопкой с тремя точками, чтобы не загромождать шапку рядом с ником. */
-.chat-menu-btn{ font-size:1.25rem; font-weight:700; }
+.chat-menu-btn svg.icon-svg{ width:19px; height:19px; }
 .chat-menu-dropdown{
   display:none; flex-direction:column; gap:2px;
   position:absolute; top:calc(100% + 8px); right:0; z-index:20;
@@ -27,7 +27,7 @@
   font-size:0.8438rem; padding:11px 12px; border-radius:var(--r-sm); cursor:pointer;
   white-space:nowrap; text-transform:none; letter-spacing:normal;
 }
-.chat-menu-item:hover{ background:var(--ink-05); }
+@media (hover: hover) and (pointer: fine){ .chat-menu-item:hover{ background:var(--ink-05); } }
 .chat-menu-item-danger{ color:var(--danger); }
 /* .omemo-badge переиспользуется как пункт меню - сбрасываем его исходный вид
    "пилюли" (border/padding/цвет по состоянию) под общий стиль строки меню,
@@ -36,7 +36,7 @@
   border:none; border-radius:var(--r-sm); padding:11px 12px; font-size:0.8438rem;
   font-family:'Inter',sans-serif; text-transform:none; letter-spacing:normal; color:var(--ok);
 }
-.chat-menu-dropdown .omemo-badge:hover{ background:var(--ink-05); }
+@media (hover: hover) and (pointer: fine){ .chat-menu-dropdown .omemo-badge:hover{ background:var(--ink-05); } }
 .chat-menu-dropdown .omemo-badge.off{ color:var(--warn); }
 .chat-menu-dropdown .omemo-badge.unavailable{ color:var(--ink-40); }
 
@@ -47,8 +47,10 @@
 }
 .omemo-badge.off{ border-color:var(--warn); color:var(--warn); }
 .omemo-badge.unavailable{ border-color:var(--ink-20); color:var(--ink-40); }
-/* header-icon-btn - общий круглый стиль иконок в шапке (сейчас только кнопка "⋮") */
-.header-icon-btn{ width:34px; height:34px; font-size:0.9375rem; border-width:1px; border-radius:var(--r-round); }
+/* header-icon-btn - общий круглый стиль иконок в шапке. Камера, аудиозвонок
+   и три точки - теперь icon-btn--plain, без собственной обводки. */
+.header-icon-btn{ width:34px; height:34px; font-size:0.9375rem; border-radius:var(--r-round); }
+.header-icon-btn svg.icon-svg{ width:19px; height:19px; }
 
 /* Плашка "вернуться к звонку" - появляется под шапкой чата, когда открыт
    чат с собеседником, с которым сейчас идёт свёрнутый звонок (см.

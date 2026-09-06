@@ -17,15 +17,17 @@ import { loadStickerAutoDownloadEnabled } from '../../features/sticker-settings.
 import { isTrustedContact } from '../../net/trusted-contacts.js';
 import { state } from '../../core/state.js';
 import { t } from '../../i18n/t.js';
+import { ICON_CHECK } from '../../core/icons.js';
 
 // Галочки "отправлено/прочитано" (как в Telegram) для НАШИХ исходящих сообщений:
-// одна галочка - ушло с устройства, две (подсвеченные) - собеседник прислал
-// <displayed> (XEP-0333, см. net/messaging/incoming.js:handleDisplayedMarker).
+// одна галочка - ушло с устройства, две (подсвеченные, внахлёст) - собеседник
+// прислал <displayed> (XEP-0333, см. net/messaging/incoming.js:handleDisplayedMarker).
 // Для входящих сообщений галочки не показываем - их не рисуем вовсе.
 export function ticksHtml(m){
   if(!m || !m.out) return '';
   const read = m.status === 'read';
-  return String(html`<span class="ticks${raw(read ? ' read' : '')}" title="${read ? t('message.read') : t('message.sent')}">${read ? '✓✓' : '✓'}</span>`);
+  const glyph = read ? ICON_CHECK + ICON_CHECK : ICON_CHECK;
+  return String(html`<span class="ticks${raw(read ? ' read' : '')}" title="${read ? t('message.read') : t('message.sent')}">${raw(glyph)}</span>`);
 }
 
 function renderVoiceBubble(singleMedia, {lock, time, ticks, nextSeq}){
@@ -66,9 +68,16 @@ function renderMediaOnlyBubble(m, singleMedia, {lock, time, ticks, nextSeq}){
   );
   const noteBoxClass = isNote ? 'video-note-box' : 'video-ratio-box';
   const tapIcon = isSticker ? '🖼️' : '▶';
+  // Превью, встроенное отправителем в саму ссылку (см.
+  // net/media/thumb-codec.js) - показываем СРАЗУ фоном плейсхолдера, ещё
+  // до скачивания/расшифровки и даже до тапа "загрузить". Только для
+  // видео/кружков - extractThumbDataUrl для картинок/стикеров всегда null
+  // (незачем: картинка сама по себе и есть свой собственный кадр).
+  const thumbDataUrl = singleMedia.kind === 'video' ? media.extractThumbDataUrl(singleMedia.url) : null;
+  const thumbStyle = thumbDataUrl ? ` style="background-image:url('${thumbDataUrl}');background-size:cover;background-position:center"` : '';
   const frameHtml = holdOff
-    ? `<div class="${noteBoxClass}"><div class="video-tap-load-overlay"><span class="video-tap-load-play">${tapIcon}</span></div></div>`
-    : `<span class="media-loading">⏳ ${t('media.loading')}</span>`;
+    ? `<div class="${noteBoxClass}"${thumbStyle}><div class="video-tap-load-overlay"><span class="video-tap-load-play">${tapIcon}</span></div></div>`
+    : `<span class="media-loading"${thumbStyle}>⏳ ${t('media.loading')}</span>`;
   // singleMedia.kind - 'image'/'video'/'audio', только из media.kindOf
   // (фиксированный набор строк), не пользовательский ввод - raw ок.
   const bubbleHtml = String(html`<div class="bubble media-only${raw(isNote ? ' video-note' : '')}" data-kind="${singleMedia.kind}">
@@ -117,7 +126,7 @@ function renderStickerPackBubble(singleMedia, {lock, time, ticks, nextSeq}){
 }
 
 function renderTextBubble(m, {lock, time, ticks, nextSeq}){
-  const { quoteHtml, bodyHtml, mediaPlaceholders } = formatMessageBody(m.body || '', { out: m.out, nextSeq });
+  const { quoteHtml, bodyHtml, mediaPlaceholders, quoteMedia } = formatMessageBody(m.body || '', { out: m.out, nextSeq });
   // Сообщение исправлено через XEP-0308 (см. net/messaging/outgoing.js:editMessage
   // и net/messaging/incoming.js:handleCorrection) - небольшая пометка рядом со
   // временем, как "edited" в Telegram.
@@ -126,6 +135,9 @@ function renderTextBubble(m, {lock, time, ticks, nextSeq}){
   // (escapeHtml применяется там до любой подстановки медиа-плейсхолдеров).
   const bubbleHtml = String(html`<div class="bubble">${raw(quoteHtml)}${raw(bodyHtml)}<span class="bubble-time">${raw(lock)}${raw(edited)}${raw(time)}${raw(ticks)}</span></div>`);
   const mediaList = mediaPlaceholders.map(({id, url, holdOff, kind}) => ({type: kind === 'plain-image' ? 'plain-image' : 'deferrable', id, url, holdOff}));
+  // Миниатюра внутри самой цитаты (фото/видео/кружок/стикер) - отдельный тип
+  // догрузки, см. ui/chat-view/media-loader.js:loadQuoteThumb и render-messages.js.
+  if(quoteMedia) mediaList.push({type: 'quote-thumb', id: quoteMedia.id, url: quoteMedia.url, kind: quoteMedia.kind, isNote: quoteMedia.isNote});
   return { html: bubbleHtml, media: mediaList };
 }
 

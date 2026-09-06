@@ -20,7 +20,7 @@
   display:flex; flex-direction:column; height:100%;
 }
 .sidebar-head{
-  padding:18px 20px 14px; border-bottom:1.5px solid var(--ink);
+  padding:18px 20px 14px; border-bottom:1px solid var(--ink);
   display:flex; align-items:center; justify-content:space-between;
 }
 .sidebar-head-left{ display:flex; align-items:center; gap:10px; min-width:0; }
@@ -29,7 +29,7 @@
   background:var(--paper); color:var(--ink); flex-shrink:0;
   font-family:inherit; outline:none;
 }
-.my-avatar-btn:hover{ border-color:var(--accent, var(--ink)); }
+@media (hover: hover) and (pointer: fine){ .my-avatar-btn:hover{ border-color:var(--accent, var(--ink)); } }
 .sidebar-title{ font-size:1.375rem; font-weight:800; letter-spacing:-.02em; }
 .sidebar-actions{ display:flex; align-items:center; gap:10px; }
 .icon-mini{
@@ -37,13 +37,13 @@
   display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:0.8125rem;
   border-radius:var(--r-round);
 }
-.icon-mini:hover{ border-color:var(--ink); color:var(--ink); }
+@media (hover: hover) and (pointer: fine){ .icon-mini:hover{ border-color:var(--ink); color:var(--ink); } }
 .logout-btn{
   font-family:'IBM Plex Mono',monospace; font-size:0.6562rem; text-transform:uppercase;
   letter-spacing:.08em; color:var(--ink-40); background:none; cursor:pointer;
   border:1px solid var(--ink-20); padding:6px 12px; border-radius:var(--r-round);
 }
-.logout-btn:hover{ border-color:var(--warn); color:var(--warn); }
+@media (hover: hover) and (pointer: fine){ .logout-btn:hover{ border-color:var(--warn); color:var(--warn); } }
 .search-wrap{ padding:12px 20px; border-bottom:1px solid var(--ink-10); }
 .search-wrap input{
   width:100%; border:1.5px solid var(--ink-10); padding:10px 16px; font-size:0.875rem;
@@ -56,26 +56,22 @@
   display:flex; align-items:center; gap:12px; padding:11px 12px; cursor:pointer;
   border-radius:var(--r-md); position:relative;
 }
-.roster-item:hover{ background:var(--ink-05); }
-.roster-item.active{ background:var(--ink); color:var(--paper); }
+@media (hover: hover) and (pointer: fine){ .roster-item:hover{ background:var(--ink-05); } }
 .avatar{
-  width:42px; height:42px; border-radius:50%; border:1.5px solid var(--ink);
+  width:42px; height:42px; border-radius:50%; border:0.75px solid var(--ink);
   display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.9375rem;
   flex-shrink:0; overflow:hidden;
 }
 .avatar img{ width:100%; height:100%; object-fit:cover; }
-.roster-item.active .avatar{ border-color:var(--paper); }
 .roster-meta{ flex:1; min-width:0; }
 .roster-name{ font-weight:600; font-size:0.9062rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; }
+.roster-name svg.icon-svg{ width:13px; height:13px; flex-shrink:0; }
 .roster-sub{
   font-size:0.75rem; color:var(--ink-40); font-family:'IBM Plex Mono',monospace;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;
 }
-.roster-item.active .roster-sub{ color:var(--paper-70); }
-.presence-dot{ width:9px; height:9px; border-radius:50%; border:2px solid var(--paper); position:absolute; left:42px; top:32px; background:var(--ink-20); }
-.roster-item.active .presence-dot{ border-color:var(--ink); }
-.presence-dot.online{ background:var(--ink); }
-.roster-item.active .presence-dot.online{ background:var(--paper); }
+.presence-dot{ width:9px; height:9px; border-radius:50%; border:2px solid var(--paper); position:absolute; left:42px; top:32px; background:#000; }
+.presence-dot.online{ background:var(--ok); }
 
 /* Счётчик непрочитанных сообщений - показывается справа от последней строки,
    когда в S.messages[jid] есть входящие с read:false (см. ui/roster.js). */
@@ -84,7 +80,6 @@
   color:var(--paper); font-size:0.6875rem; font-weight:700; display:flex; align-items:center; justify-content:center;
   flex-shrink:0; font-family:'IBM Plex Mono',monospace;
 }
-.roster-item.active .roster-unread{ background:var(--paper); color:var(--warn); }
 .roster-empty{ padding:40px 24px; color:var(--ink-40); font-size:0.8125rem; font-family:'IBM Plex Mono',monospace; line-height:1.6; }
 
 .add-contact{
@@ -92,5 +87,5 @@
   font-family:'IBM Plex Mono',monospace; font-size:0.75rem; text-transform:uppercase;
   letter-spacing:.08em; display:flex; align-items:center; gap:8px; color:var(--ink-60);
 }
-.add-contact:hover{ color:var(--ink); border-color:var(--ink); }
+@media (hover: hover) and (pointer: fine){ .add-contact:hover{ color:var(--ink); border-color:var(--ink); } }
 .add-contact .plus{ font-size:1rem; font-weight:700; }

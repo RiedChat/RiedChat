@@ -33,10 +33,10 @@
   "chatHead": {
     "online": "online",
     "offline": "offline",
-    "encryptionUnavailable": "🔓 encryption unavailable",
-    "noOmemo": "🔓 contact has no OMEMO",
-    "encryptionOff": "🔓 encryption disabled",
-    "omemoOn": "🔒 OMEMO",
+    "encryptionUnavailable": "encryption unavailable",
+    "noOmemo": "contact has no OMEMO",
+    "encryptionOff": "encryption disabled",
+    "omemoOn": "OMEMO",
     "replyVerb": "Reply",
     "editVerb": "Editing",
     "cancelEditTitle": "Click to cancel editing",
@@ -94,8 +94,8 @@
     "dbTimeoutFallback": "the \"{dbName}\" database did not open within 8s - it is likely locked by another open tab/window"
   },
   "chatControls": {
-    "omemoOffBtn": "🔒 Turn off OMEMO",
-    "omemoOnBtn": "🔓 Turn on OMEMO",
+    "omemoOffBtn": "Turn off OMEMO",
+    "omemoOnBtn": "Turn on OMEMO",
     "omemoOnTitle": "OMEMO is on (click to turn off)",
     "omemoOffTitle": "OMEMO is off (click to turn on)",
     "omemoOnToast": "OMEMO turned on - messages will be encrypted",

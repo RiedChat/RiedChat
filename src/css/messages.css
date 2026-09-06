@@ -47,24 +47,42 @@
 
 /* ---------- блок цитаты в теле ответа (свайп-цитирование) ---------- */
 .bubble .quote-block{
-  border-left:3px solid var(--warn); padding:1px 0 1px 10px; margin-bottom:6px;
+  display:flex; align-items:center; gap:8px;
+  border-left:3px solid var(--warn); padding:4px 0 4px 10px; margin-bottom:6px;
   font-size:calc(var(--chat-font-size, 0.9062rem) * 0.8966); line-height:1.35; opacity:.7; white-space:normal;
   cursor:pointer; /* клик -> переход к процитированному сообщению, см. features/quote-jump.js */
 }
+.bubble .quote-block .quote-block-text{
+  min-width:0; /* даёт тексту переноситься/обрезаться, а не распирать флекс-строку по миниатюре */
+}
 .bubble .quote-block .quote-author{
   display:block; font-weight:700; color:var(--warn); font-size:calc(var(--chat-font-size, 0.9062rem) * 0.7931); margin-bottom:1px;
+}
+/* Миниатюра фото/видео/кружка/стикера ВНУТРИ самой цитаты (см.
+   ui/chat-view/message-body-html.js:formatMessageBody и
+   ui/chat-view/media-loader.js:loadQuoteThumb) - маленький квадрат слева от
+   текста цитаты, как превью цитируемого сообщения в Telegram. */
+.bubble .quote-block .quote-thumb{
+  flex:none; width:36px; height:36px; border-radius:6px; overflow:hidden;
+  background:rgba(128,128,128,.25);
+}
+.bubble .quote-block .quote-thumb.quote-thumb-round{ border-radius:50%; } /* кружок (features/video-note.js) */
+.bubble .quote-block .quote-thumb img,
+.bubble .quote-block .quote-thumb video{
+  display:block; width:100%; height:100%; object-fit:cover;
 }
 /* Подсветка сообщения, к которому перешли по клику на цитату (features/quote-jump.js).
    Фон пузыря на мгновение вспыхивает акцентным цветом и плавно возвращается к своему
    обычному - раздельно для исходящих/входящих, у них разный "родной" фон. */
 /* лёгкий "хвостик" пузыря, как в Telegram - один угол чуть менее скруглён */
-.msg-row.out .bubble{ background:var(--ink); color:var(--paper); border:1.5px solid var(--ink); border-bottom-right-radius:6px; }
-.msg-row.in .bubble{ background:var(--paper); color:var(--ink); border:1.5px solid var(--ink); border-bottom-left-radius:6px; }
+.msg-row.out .bubble{ background:var(--ink); color:var(--paper); border:0.75px solid var(--ink); border-bottom-right-radius:6px; }
+.msg-row.in .bubble{ background:var(--paper); color:var(--ink); border:0.75px solid var(--ink); border-bottom-left-radius:6px; }
 .bubble-time{
   display:flex; align-items:center; gap:5px; font-size:calc(var(--chat-font-size, 0.9062rem) * 0.6897); margin-top:5px; font-family:'IBM Plex Mono',monospace;
   opacity:.55; text-align:right; justify-content:flex-end;
 }
-.bubble-time .lock{ font-size:calc(var(--chat-font-size, 0.9062rem) * 0.6897); }
+.bubble-time .lock{ font-size:calc(var(--chat-font-size, 0.9062rem) * 0.6897); display:inline-flex; vertical-align:-1px; }
+.bubble-time .lock svg.icon-svg{ width:0.8125rem; height:0.8125rem; }
 /* Пометка "изменено" у отредактированных сообщений (XEP-0308) - как
    маленький серый "edited" в Telegram, а не отдельная строка. */
 .bubble-time .edited-tag{ font-style:italic; }
@@ -72,8 +90,14 @@
    Одна - ушло с устройства, две - собеседник подтвердил показ (XEP-0333).
    Цвет "прочитано" берём из --ok (тот же зелёный, что у online-статуса/доверенных
    ключей), чтобы не заводить отдельный акцентный цвет только под это. */
-.bubble-time .ticks{ font-size:calc(var(--chat-font-size, 0.9062rem) * 0.7586); letter-spacing:-2px; padding-right:2px; opacity:.75; }
-.bubble-time .ticks.read{ color:var(--ok); opacity:1; }
+.bubble-time .ticks{ display:inline-flex; align-items:center; padding-right:2px; opacity:.75; }
+.bubble-time .ticks.read{ color:var(--paper); opacity:1; }
+.bubble-time .ticks svg.icon-svg{ width:0.8125rem; height:0.8125rem; flex-shrink:0; }
+/* "Прочитано" - две галочки внахлёст (как в Telegram): вторая сдвинута
+   влево на половину своей ширины поверх первой, отдельной "двойной" иконки
+   в наборе нет. Для одиночной "отправлено" второй svg просто не рисуется
+   (см. bubble-renderers.js:ticksHtml). */
+.bubble-time .ticks.read svg.icon-svg:last-child{ margin-left:-0.5625rem; }
 /* max-height ограничивает высокие портретные скриншоты, как в Telegram:
    картинка/видео сжимаются по большей стороне, а не растягиваются во всю высоту чата.
    Скрины намеренно чуть компактнее (~0.8x), видео - чуть крупнее (~1.3x). */

@@ -3,11 +3,12 @@
 // Выделено из ui/chat-view.js: эта часть не участвует в рендере списка
 // сообщений и не зависит от него - только от S.activeChat/S.roster/S.replyTo.
 import { $, formatLastSeen, initials, nickOf } from '../core/dom-utils.js';
-import { html, setHTML } from '../core/safe-html.js';
+import { html, raw, setHTML } from '../core/safe-html.js';
 import { state } from '../core/state.js';
 import { omemo } from '../crypto/omemo/state.js';
 import { mediaLabel } from '../features/message-swipe/shared.js';
 import { t } from '../i18n/t.js';
+import { ICON_LOCK_CLOSED, ICON_LOCK_OPEN } from '../core/icons.js';
 
 const S = state;
 
@@ -35,18 +36,21 @@ export function updateOmemoBadge(){
   if(!S.activeChat){ badge.style.display = 'none'; return; }
   badge.style.display = 'inline-flex';
   const support = omemo.chatSupport[S.activeChat];
+  // Замок в бейдже отражает текущее состояние шифрования: закрытый - когда
+  // OMEMO реально активен для этого чата, открытый - во всех остальных
+  // случаях (недоступно/нет у собеседника/выключено).
   if(!omemo.ready){
     badge.className = 'omemo-badge unavailable';
-    badge.textContent = t('chatHead.encryptionUnavailable');
+    setHTML(badge, html`${raw(ICON_LOCK_OPEN)} ${t('chatHead.encryptionUnavailable')}`);
   } else if(support === false){
     badge.className = 'omemo-badge unavailable';
-    badge.textContent = t('chatHead.noOmemo');
+    setHTML(badge, html`${raw(ICON_LOCK_OPEN)} ${t('chatHead.noOmemo')}`);
   } else if(!omemo.enabled){
     badge.className = 'omemo-badge off';
-    badge.textContent = t('chatHead.encryptionOff');
+    setHTML(badge, html`${raw(ICON_LOCK_OPEN)} ${t('chatHead.encryptionOff')}`);
   } else {
     badge.className = 'omemo-badge';
-    badge.textContent = t('chatHead.omemoOn');
+    setHTML(badge, html`${raw(ICON_LOCK_CLOSED)} ${t('chatHead.omemoOn')}`);
   }
 }
 

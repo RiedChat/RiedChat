@@ -1,4 +1,4 @@
-import { $ } from '../../core/dom-utils.js';
+import { $, nickOf } from '../../core/dom-utils.js';
 import { state } from '../../core/state.js';
 import { renderReplyBar } from '../../ui/chat-head.js';
 import { stripQuotedBody } from '../../core/text-patterns.js';
@@ -23,6 +23,16 @@ export function startReply(msg, bubble){
   // при цитировании в тексте цитаты навсегда фиксировалось именно исходное
   // имя, даже если контакт давно сменил ник.
   const author = msg.out ? t('common.you') : ((contact && (contact.nick || contact.name)) || S.activeChat);
+  // "Вы" имеет смысл только ЛОКАЛЬНО, в плашке над полем ввода (см.
+  // ui/chat-head.js:renderReplyBar) - это же слово ниже (buildQuotedBody в
+  // net/messaging/outgoing/compose.js) буквально попадает в ТЕКСТ отправляемого
+  // сообщения, то есть уходит и собеседнику. Раньше при цитировании СВОЕГО ЖЕ
+  // сообщения автором в отправленный текст так и записывалось "Вы" - и
+  // собеседник в чате видел цитату вида "Вы: ...", хотя это сообщение отправили
+  // мы, а не он. wireAuthor - то, что реально уйдёт в тело: для своих сообщений
+  // это наше отображаемое имя (как везде в интерфейсе выводится JID без
+  // домена, см. nickOf), а не локальное местоимение.
+  const wireAuthor = msg.out ? (nickOf(S.myBareJid) || author) : author;
   let text;
   if(kind && KIND_LABEL[kind]){
     // Тело медиа-сообщения - это и есть точная ссылка на файл (см.
@@ -52,7 +62,7 @@ export function startReply(msg, bubble){
   // метку ("📎 Файл" и т.п.), а не голую ссылку, которая как раз и лежит в
   // text ниже - она нужна именно как ссылка при сборке тела сообщения
   // (см. net/messaging/outgoing/compose.js:buildQuotedBody).
-  S.replyTo = { author, text, id: msg.id, kind: (kind && KIND_LABEL[kind]) ? kind : null };
+  S.replyTo = { author, wireAuthor, text, id: msg.id, kind: (kind && KIND_LABEL[kind]) ? kind : null };
   renderReplyBar();
   if(navigator.vibrate) navigator.vibrate(12);
   const input = $('msg-input');

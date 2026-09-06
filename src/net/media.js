@@ -16,6 +16,7 @@ import { history } from './history.js';
 import { state } from '../core/state.js';
 import { kindOfMime, extOf, kindOf, isVideoNote, isSticker, isStickerPack } from './media/mime-kind.js';
 import { request, requestFireAndForget } from './media/worker-client.js';
+import { extractThumbDataUrl } from './media/thumb-codec.js';
 
 // Кэш в памяти вкладки, чтобы одну и ту же ссылку не расшифровывать повторно
 // при каждом рендере списка сообщений (переключение чатов туда-обратно и т.п.).
@@ -26,9 +27,17 @@ function currentDbName(){
 }
 
 export const media = {
-  AESGCM_RE: /aesgcm:\/\/[^\s#]+#[0-9a-fA-F]+/g,
+  // Необязательный ';t=<base64url>' хвост после hex-ключа - встроенное
+  // превью-кадра (см. net/media/thumb-codec.js и net/upload.js). ';' не
+  // входит в hex-алфавит, поэтому старые ссылки без превью по-прежнему
+  // матчатся ровно так же, как раньше.
+  AESGCM_RE: /aesgcm:\/\/[^\s#]+#[0-9a-fA-F]+(?:;t=[A-Za-z0-9_-]+)?/g,
 
   kindOfMime, extOf, kindOf, isVideoNote, isSticker, isStickerPack,
+
+  // Достаёт встроенное превью-кадра прямо из ссылки, без сети и без
+  // расшифровки вложения - см. ui/chat-view/media-loader.js.
+  extractThumbDataUrl,
 
   isAesgcm(url){ return /^aesgcm:\/\//i.test(url); },
 

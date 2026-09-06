@@ -24,7 +24,13 @@ export async function fetchAndDecrypt(aesgcmUrl, onProgress, allowedHosts, sende
   const hashIdx = aesgcmUrl.indexOf('#');
   if(hashIdx === -1) throw new Error('нет ключа в ссылке (после #)');
   const withoutScheme = aesgcmUrl.slice('aesgcm://'.length, hashIdx);
-  const hex = aesgcmUrl.slice(hashIdx + 1);
+  // Ссылка может нести встроенное превью-кадра после ключа, вида
+  // '#<hexKeyIv>;t=<base64url>' (см. net/media/thumb-codec.js,
+  // net/upload.js) - для расшифровки самого файла оно не нужно, отрезаем
+  // его по разделителю ';t=', который не входит в hex-алфавит.
+  const fragment = aesgcmUrl.slice(hashIdx + 1);
+  const thumbSepIdx = fragment.indexOf(';t=');
+  const hex = thumbSepIdx === -1 ? fragment : fragment.slice(0, thumbSepIdx);
   const httpsUrl = 'https://' + withoutScheme;
 
   // Собеседник (или подменивший его MITM) сам формирует aesgcm://-ссылку и

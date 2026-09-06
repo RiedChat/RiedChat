@@ -25,7 +25,8 @@
 .login-brand .dot{width:6px;height:6px;background:var(--ink);border-radius:50%;display:inline-block;}
 .login-title{ font-size:2.125rem; font-weight:800; letter-spacing:-.02em; margin-bottom:6px; }
 .login-sub{ font-size:0.75rem; color:var(--ok); font-family:'IBM Plex Mono',monospace; margin-bottom:22px; display:flex; align-items:center; gap:6px;}
-.login-sub .lock{ font-size:0.8125rem; }
+.login-sub .lock{ display:inline-flex; vertical-align:-2px; }
+.login-sub .lock svg.icon-svg{ width:14px; height:14px; }
 .field{ margin-bottom:14px; }
 .field label{
   display:block; font-size:0.6875rem; text-transform:uppercase; letter-spacing:.1em;
@@ -43,7 +44,7 @@
   margin-top:8px; text-transform:uppercase; font-family:'IBM Plex Mono',monospace;
   border-radius:var(--r-sm);
 }
-.btn-primary:hover{ background:var(--paper); color:var(--ink); }
+@media (hover: hover) and (pointer: fine){ .btn-primary:hover{ background:var(--paper); color:var(--ink); } }
 .btn-primary:disabled{ opacity:.3; cursor:default; }
 .btn-secondary{
   width:100%; background:none; color:var(--ink-60); border:1px solid var(--ink-20);
@@ -51,7 +52,7 @@
   margin-top:8px; text-transform:uppercase; font-family:'IBM Plex Mono',monospace;
   border-radius:var(--r-sm);
 }
-.btn-secondary:hover{ border-color:var(--ink); color:var(--ink); }
+@media (hover: hover) and (pointer: fine){ .btn-secondary:hover{ border-color:var(--ink); color:var(--ink); } }
 .login-status{
   margin-top:14px; font-size:0.75rem; font-family:'IBM Plex Mono',monospace; color:var(--ink-60);
   min-height:16px;
@@ -66,4 +67,4 @@
   background:none; border:1px solid var(--ink-40); border-radius:var(--r-round); color:var(--ink-60); font-size:0.6875rem; padding:5px 11px;
   cursor:pointer; font-family:'IBM Plex Mono',monospace; text-transform:uppercase;
 }
-.saved-account button:hover{ border-color:var(--ink); color:var(--ink); }
+@media (hover: hover) and (pointer: fine){ .saved-account button:hover{ border-color:var(--ink); color:var(--ink); } }

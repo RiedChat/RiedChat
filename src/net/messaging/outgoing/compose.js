@@ -21,7 +21,12 @@ const S = state;
 // чтобы клик по цитате (features/quote-jump.js) находил именно его, а не
 // произвольное текстуально совпадающее сообщение (см. text-patterns.js).
 export function buildQuotedBody(replyTo, text){
-  const author = (replyTo.author || '').replace(/\n/g, ' ');
+  // wireAuthor (если задан - см. features/message-swipe/quote.js:startReply) -
+  // именно то, что должно уйти в ТЕКСТ сообщения собеседнику; author - то, что
+  // показывается ЛОКАЛЬНО в плашке над полем ввода (см. ui/chat-head.js:
+  // renderReplyBar) и может быть локальным местоимением ("Вы"), которое для
+  // собеседника не имеет смысла (он не "вы", а получатель нашего сообщения).
+  const author = (replyTo.wireAuthor || replyTo.author || '').replace(/\n/g, ' ');
   const snippet = (replyTo.text || '').replace(/\n/g, ' ');
   const idPart = replyTo.id ? (QUOTE_ID_DELIM + String(replyTo.id).replace(new RegExp(QUOTE_ID_DELIM, 'g'), '') + QUOTE_ID_DELIM) : '';
   return QUOTE_MARKER + idPart + '> ' + author + ':\n> ' + snippet + '\n\n' + text;

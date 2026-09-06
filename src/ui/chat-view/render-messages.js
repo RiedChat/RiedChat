@@ -13,8 +13,9 @@ import { debugLog } from '../../core/debug-log.js';
 import { ticksHtml, renderBubble } from './bubble-renderers.js';
 import { classifySingleMedia } from './message-body-html.js';
 import { _watchUnreadDivider, _stopUnreadTracking } from './unread-tracking.js';
-import { loadEncryptedMedia, loadPlainImage, _loadMediaOrDeferForVideo } from './media-loader.js';
+import { loadEncryptedMedia, loadPlainImage, loadQuoteThumb, _loadMediaOrDeferForVideo } from './media-loader.js';
 import { t } from '../../i18n/t.js';
+import { ICON_LOCK_CLOSED, ICON_LOCK_OPEN } from '../../core/icons.js';
 
 const S = state;
 
@@ -51,7 +52,7 @@ export function onRenderMessages(cb){ _afterRender = cb; }
 function renderMessageRow(el, m, mIdx, ctx){
   try{
     const time = new Date(m.time).toLocaleTimeString('ru-RU', {hour:'2-digit', minute:'2-digit'});
-    const lock = m.encrypted ? '<span class="lock" title="OMEMO">🔒</span>' : `<span class="lock" title="${t('message.notEncrypted')}">🔓</span>`;
+    const lock = m.encrypted ? `<span class="lock" title="OMEMO">${ICON_LOCK_CLOSED}</span>` : `<span class="lock" title="${t('message.notEncrypted')}">${ICON_LOCK_OPEN}</span>`;
     const ticks = ticksHtml(m);
     const bubbleCtx = {lock, time, ticks, nextSeq: ctx.nextSeq};
 
@@ -75,13 +76,18 @@ function renderMessageRow(el, m, mIdx, ctx){
     // (сам ключ чата). Нужно для TOFU-доверия upload-хосту отправителя
     // при скачивании чужих aesgcm://-вложений (см. net/media.js/decrypt).
     const senderJid = m.out ? S.myBareJid : S.activeChat;
-    rendered.media.forEach(({type, id, url, holdOff}) => {
+    rendered.media.forEach(({type, id, url, holdOff, kind, isNote}) => {
       if(type === 'voice') loadEncryptedMedia(id, url, senderJid);
       else if(type === 'plain-image') loadPlainImage(id, url);
       // Карточка "добавить пак стикеров" - редкий тип сообщения, поэтому её
       // код (и вся сборка стикер-фичи, которую тянет pack-card.js) грузится
       // отдельным чанком по требованию, а не для каждого открытия чата.
       else if(type === 'stickerpack') import('../../features/stickers/pack-card.js').then(m => m.loadStickerPackCard(id, url, senderJid));
+      // Миниатюра фото/видео/кружка/стикера ВНУТРИ самой цитаты (см.
+      // ui/chat-view/message-body-html.js:formatMessageBody) - отдельная,
+      // более лёгкая догрузка: только маленькая картинка/кадр, без плеера
+      // и без плашки "нажмите, чтобы загрузить".
+      else if(type === 'quote-thumb') loadQuoteThumb(id, url, kind, isNote, senderJid);
       else _loadMediaOrDeferForVideo(id, url, holdOff, senderJid);
     });
   }catch(e){

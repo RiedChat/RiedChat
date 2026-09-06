@@ -48,11 +48,15 @@ export function classifySingleMedia(raw){
 // цитаты и заменяет инлайн aesgcm://-медиа и обычные ссылки/картинки на
 // HTML-плейсхолдеры. nextSeq() - функция-счётчик id, общая на весь рендер
 // списка сообщений (передаётся снаружи, чтобы id не повторялись между
-// сообщениями). Возвращает {quoteHtml, bodyHtml, mediaPlaceholders}, где
-// mediaPlaceholders - [{id, url, holdOff}] для последующей догрузки.
+// сообщениями). Возвращает {quoteHtml, bodyHtml, mediaPlaceholders, quoteMedia},
+// где mediaPlaceholders - [{id, url, holdOff}] для последующей догрузки, а
+// quoteMedia (если цитата ссылается на фото/видео/кружок/стикер) -
+// {id, url, kind, isNote} для отдельной догрузки миниатюры внутри самой цитаты
+// (см. ui/chat-view/media-loader.js:loadQuoteThumb).
 export function formatMessageBody(rawBody, {out, nextSeq}){
   let mainBody = rawBody || '';
   let quoteHtml = '';
+  let quoteMedia = null;
   const quoteSplit = splitQuotedBody(mainBody);
   if(quoteSplit){
     // data-quote-text - не для отображения, а для клика по цитате (см.
@@ -68,7 +72,30 @@ export function formatMessageBody(rawBody, {out, nextSeq}){
     const quotedMedia = classifySingleMedia(quoteSplit.quoted);
     const quoteDisplayText = quotedMedia ? mediaLabel(quotedMedia.kind, quoteSplit.quoted) : quoteSplit.quoted;
     const idAttr = quoteSplit.id === null ? '' : ` data-quote-id="${escapeHtml(quoteSplit.id)}"`;
-    quoteHtml = `<div class="quote-block" data-quote-author="${escapeHtml(quoteSplit.author)}" data-quote-text="${escapeHtml(quoteSplit.quoted)}"${idAttr}>${quoteSplit.author ? `<span class="quote-author">${escapeHtml(quoteSplit.author)}</span>` : ''}${escapeHtml(quoteDisplayText)}</div>`;
+    // Миниатюра внутри цитаты - только для того, что реально можно показать
+    // картинкой (фото/видео, включая кружки и стикеры - технически это тот
+    // же image/video-kind, см. features/message-swipe/shared.js:mediaLabel).
+    // Голосовые/файлы/паки стикеров такого превью не получают - для них
+    // текстовой метки (📎 Файл и т.п.) достаточно, а плеер/карточка внутри
+    // самой цитаты был бы избыточен.
+    let quoteThumbHtml = '';
+    if(quotedMedia && (quotedMedia.kind === 'image' || quotedMedia.kind === 'video')){
+      const isNote = quotedMedia.kind === 'video' && media.isVideoNote(quotedMedia.url);
+      const thumbClass = 'quote-thumb' + (isNote ? ' quote-thumb-round' : '');
+      if(quotedMedia.encrypted){
+        // aesgcm:// - расшифровывается асинхронно (тот же net/media.js:decrypt,
+        // что и для обычного инлайн-медиа выше) - ставим плейсхолдер и просим
+        // догрузить после вставки в DOM (см. bubble-renderers.js/render-messages.js).
+        const thumbId = 'quote-thumb-' + nextSeq();
+        quoteThumbHtml = `<div class="${thumbClass}" id="${thumbId}"></div>`;
+        quoteMedia = { id: thumbId, url: quotedMedia.url, kind: quotedMedia.kind, isNote };
+      } else if(quotedMedia.kind === 'image'){
+        // Незашифрованная картинка - открытый https-URL, скачивать нечего,
+        // показываем сразу тем же тегом, что и обычную инлайн-картинку.
+        quoteThumbHtml = `<div class="${thumbClass}"><img src="${escapeHtml(quotedMedia.url)}" loading="lazy"></div>`;
+      }
+    }
+    quoteHtml = `<div class="quote-block" data-quote-author="${escapeHtml(quoteSplit.author)}" data-quote-text="${escapeHtml(quoteSplit.quoted)}"${idAttr}>${quoteThumbHtml}<div class="quote-block-text">${quoteSplit.author ? `<span class="quote-author">${escapeHtml(quoteSplit.author)}</span>` : ''}${escapeHtml(quoteDisplayText)}</div></div>`;
     mainBody = quoteSplit.rest;
   }
   let bodyHtml = escapeHtml(mainBody.trim());
@@ -90,12 +117,20 @@ export function formatMessageBody(rawBody, {out, nextSeq}){
     const holdOff = kind === 'video' && !out && !loadVideoAutoDownloadEnabled() &&
       !(cachedEntry && cachedEntry.status === 'done');
     mediaPlaceholders.push({id, url: u, holdOff});
+    // Превью, встроенное отправителем в саму ссылку (см.
+    // net/media/thumb-codec.js) - показываем его СРАЗУ фоном плейсхолдера,
+    // ещё до скачивания/расшифровки самого видео (а для holdOff - даже до
+    // тапа пользователя). extractThumbDataUrl сама проверяет содержимое на
+    // допустимый base64url-алфавит, так что тут можно вставлять результат
+    // без дополнительного экранирования кавычек/скобок.
+    const thumbDataUrl = kind === 'video' ? media.extractThumbDataUrl(u) : null;
+    const thumbStyle = thumbDataUrl ? ` style="background-image:url('${thumbDataUrl}');background-size:cover;background-position:center"` : '';
     const inner = holdOff
       // span, а не div: строкой ниже bodyHtml прогоняется через regex, который
       // ищет конец media-embed по ПЕРВОМУ </div> - вложенный <div> тут обрезал
       // бы разметку на полпути.
-      ? '<span class="video-ratio-box"><span class="video-tap-load-overlay"><span class="video-tap-load-play">▶</span></span></span>'
-      : `<span class="media-loading">⏳ ${t('media.loading')}</span>`;
+      ? `<span class="video-ratio-box"${thumbStyle}><span class="video-tap-load-overlay"><span class="video-tap-load-play">▶</span></span></span>`
+      : `<span class="media-loading"${thumbStyle}>⏳ ${t('media.loading')}</span>`;
     return `<div class="media-embed${extraClass}${holdOff ? ' video-tap-load' : ''}" id="${id}">${inner}</div>`;
   });
   bodyHtml = bodyHtml.replace(URL_RE, (u) => {
@@ -127,6 +162,6 @@ export function formatMessageBody(rawBody, {out, nextSeq}){
   // Блочные вставки медиа сами создают перенос, поэтому переносы строк
   // вокруг них не нужны - убираем.
   bodyHtml = bodyHtml.replace(/(\n[ \t]*)*(<div class="media-embed[^"]*"[^>]*>[\s\S]*?<\/div>)([ \t]*\n)*/g, '$2');
-  return { quoteHtml, bodyHtml, mediaPlaceholders };
+  return { quoteHtml, bodyHtml, mediaPlaceholders, quoteMedia };
 }
 

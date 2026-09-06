@@ -61,6 +61,46 @@ export function loadPlainImage(placeholderId, url){
   host.addEventListener('click', startLoad, {once: true});
 }
 
+// Миниатюра фото/видео/кружка/стикера ВНУТРИ самой цитаты (см.
+// ui/chat-view/message-body-html.js:formatMessageBody) - использует тот же
+// media.decrypt() и тот же in-memory кэш, что и полноразмерный рендер медиа
+// (loadEncryptedMedia ниже), поэтому если то же вложение уже показывается
+// где-то в чате как основное сообщение, повторно скачивать/расшифровывать
+// не придётся. В отличие от loadEncryptedMedia, здесь нет ни прогресса, ни
+// плеера с controls, ни плашки "нажмите, чтобы загрузить" - только сама
+// картинка/кадр, максимально компактно.
+export async function loadQuoteThumb(placeholderId, aesgcmUrl, kind, isNote, senderJid){
+  const entry = await media.decrypt(aesgcmUrl, null, senderJid);
+  const host = document.getElementById(placeholderId);
+  if(!host) return; // сообщение уже перерисовано/удалено
+  if(entry.status === 'error'){
+    // Рядом всё равно остаётся текстовая метка цитаты (📷 Фото и т.п.) -
+    // молча прячем несостоявшуюся миниатюру, а не рисуем в цитате заглушку
+    // с ошибкой (для маленького превью это было бы слишком заметно/некрасиво).
+    host.remove();
+    return;
+  }
+  const {blobUrl, kind: realKind} = entry;
+  if(realKind === 'image'){
+    setHTML(host, html`<img src="${blobUrl}">`);
+  } else if(realKind === 'video'){
+    setHTML(host, html`<video src="${blobUrl}" muted playsinline preload="auto"></video>`);
+    const videoEl = host.querySelector('video');
+    // Предпочитаем превью, встроенное отправителем в саму ссылку (см.
+    // net/media/thumb-codec.js/net/upload.js) - готовый кадр с несжатого
+    // оригинала, а не выковырянный постфактум из уже скачанного файла.
+    // Постфактумный захват (setPreviewPoster) - fallback для сообщений
+    // без встроенного превью (см. подробный комментарий в loadEncryptedMedia ниже).
+    if(videoEl){
+      const embeddedThumb = media.extractThumbDataUrl(aesgcmUrl);
+      if(embeddedThumb) videoEl.poster = embeddedThumb;
+      else setPreviewPoster(videoEl, {skipSeek: !!isNote});
+    }
+  } else {
+    host.remove();
+  }
+}
+
 // Скачивает и расшифровывает файл по aesgcm:// ссылке, затем подменяет
 // плейсхолдер на <img>/<video>/<audio> с blob-URL (или ссылку-фолбэк при ошибке).
 export async function loadEncryptedMedia(placeholderId, aesgcmUrl, senderJid){
@@ -140,10 +180,23 @@ export async function loadEncryptedMedia(placeholderId, aesgcmUrl, senderJid){
           setHTML(host, html`<div class="video-ratio-box"><video src="${blobUrl}" controls preload="auto" playsinline></video><button type="button" class="media-expand-btn" title="${t('media.openFullscreen')}">⛶</button></div>`);
         }
         const videoEl = host.querySelector('video');
-        // skipSeek - см. video-poster.js: кружки идут из MediaRecorder без
-        // индекса в контейнере, перемотка на них не работает и раньше
-        // молча оставляла постер пустым.
-        if(videoEl) setPreviewPoster(videoEl, {skipSeek: isNoteVideo});
+        // ПРЕВЬЮ: сначала пробуем то, что отправитель встроил прямо в
+        // ссылку (см. net/media/thumb-codec.js/net/upload.js) - кадр,
+        // снятый ОДИН РАЗ на стороне отправителя из ещё не зашифрованного
+        // оригинала (для кружков - прямо с канваса живой записи, см.
+        // features/video-note/recording-stop.js). Это надёжно всегда,
+        // включая кружки: MediaRecorder не пишет индекс кадров (Cues) в
+        // webm, поэтому перемотка/захват кадра ПОСТФАКТУМ, из уже
+        // скачанного и расшифрованного файла, на части браузеров (особенно
+        // Safari/iOS) не срабатывает вовсе - см. video-poster/index.js.
+        // setPreviewPoster (постфактумный захват) остаётся только как
+        // fallback - для сообщений, отправленных до этой функции, или от
+        // другого XMPP-клиента без поддержки встроенного превью.
+        if(videoEl){
+          const embeddedThumb = media.extractThumbDataUrl(aesgcmUrl);
+          if(embeddedThumb) videoEl.poster = embeddedThumb;
+          else setPreviewPoster(videoEl, {skipSeek: isNoteVideo});
+        }
       } else if(kind === 'audio'){
         mountVoicePlayer(host, blobUrl);
       } else {

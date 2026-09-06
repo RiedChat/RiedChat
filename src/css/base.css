@@ -47,6 +47,8 @@
   --paper-70: rgba(255,255,255,.70);
 }
 *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+button, [role="button"]{ outline:none; }
+button:focus, button:focus-visible{ outline:none; }
 html,body{height:100%;}
 /* Явно сообщаем браузеру/WebView, что страница тёмная: некоторые мобильные браузеры
    и WebView-обёртки (форс-тёмная/форс-светлая тема) иначе сами перекрашивают текстовые
@@ -72,4 +74,9 @@ input, textarea{
 
 ::-webkit-scrollbar{ width:8px; }
 ::-webkit-scrollbar-thumb{ background:var(--ink-20); }
+
+/* Общий размер для inline-SVG иконок (public/icons/ui/*.svg), вставленных
+   прямо в разметку - используют stroke="currentColor", поэтому подхватывают
+   цвет текста кнопки/родителя без доп. настроек. */
+.icon-svg{ width:16px; height:16px; flex-shrink:0; vertical-align:-3px; }
 ::-webkit-scrollbar-track{ background:transparent; }

@@ -11,6 +11,7 @@ import { t } from '../../i18n/t.js';
 export function releasePreviewBlob(){
   if(S.recordedUrl){ URL.revokeObjectURL(S.recordedUrl); S.recordedUrl = null; }
   S.recordedBlob = null;
+  S.recordedThumbB64url = null;
 }
 
 export function discardPreview(){
@@ -30,8 +31,11 @@ export function sendPreview(){
   // для круглого рендера в чате (см. ui/chat-view/bubble-renderers.js,
   // media-loader.js).
   const file = new File([S.recordedBlob], 'videonote-' + Date.now() + '.webm', {type: S.recordedBlob.type || 'video/webm'});
+  // Превью снято ещё в recording-stop.js прямо с канваса записи (см. там
+  // комментарий) - забираем ДО releasePreviewBlob(), которая его обнулит.
+  const thumbnailB64url = S.recordedThumbB64url;
   releasePreviewBlob();
   showModal(false);
   if(!state.activeChat){ toast(t('videoNote.chatClosedNotSent')); return; }
-  uploadAndSend(file);
+  uploadAndSend(file, undefined, { thumbnailB64url });
 }
