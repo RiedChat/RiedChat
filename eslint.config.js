@@ -1,5 +1,5 @@
 import js from '@eslint/js';
-import importPlugin from 'eslint-plugin-import';
+import importPlugin from 'eslint-plugin-import-x';
 import prettierConfig from 'eslint-config-prettier';
 
 export default [
@@ -67,11 +67,11 @@ export default [
       },
     },
     plugins: {
-      import: importPlugin,
+      'import-x': importPlugin,
     },
     rules: {
-      'import/no-unresolved': 'off',
-      'import/order': [
+      'import-x/no-unresolved': 'off',
+      'import-x/order': [
         'warn',
         { 'newlines-between': 'always', alphabetize: { order: 'asc' } },
       ],
