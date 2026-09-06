@@ -8,7 +8,9 @@ vi.mock('../../../src/net/media.js', () => ({
     extOf: vi.fn((url) => (url.split('.').pop() || '').split('#')[0]),
     isAesgcm: (url) => /^aesgcm:\/\//i.test(url),
     isStickerPack: vi.fn(() => false),
+    isVideoNote: vi.fn(() => false),
     getCached: vi.fn(() => undefined),
+    extractThumbDataUrl: vi.fn(() => null),
   },
 }));
 vi.mock('../../../src/features/message-swipe.js', () => ({ mediaLabel: vi.fn((kind) => '[' + kind + ']') }));

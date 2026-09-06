@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../src/net/media.js', () => ({
-  media: { getCached: vi.fn(), isVideoNote: vi.fn(() => false), isSticker: vi.fn(() => false) },
+  media: { getCached: vi.fn(), isVideoNote: vi.fn(() => false), isSticker: vi.fn(() => false), extractThumbDataUrl: vi.fn(() => null) },
 }));
 vi.mock('../../../src/ui/chat-view/message-body-html.js', () => ({ formatMessageBody: vi.fn() }));
 vi.mock('../../../src/features/video-settings.js', () => ({ loadVideoAutoDownloadEnabled: vi.fn(() => false) }));
@@ -17,6 +17,7 @@ import { media } from '../../../src/net/media.js';
 import { formatMessageBody } from '../../../src/ui/chat-view/message-body-html.js';
 import { loadImageAutoDownloadEnabled } from '../../../src/features/image-settings.js';
 import { isTrustedContact } from '../../../src/net/trusted-contacts.js';
+import { ICON_CHECK } from '../../../src/core/icons.js';
 
 const ctx = { lock: '', time: '<span>12:00</span>', ticks: '', nextSeq: (() => { let n = 0; return () => n++; })() };
 
@@ -27,14 +28,14 @@ describe('ticksHtml', () => {
 
   it('своё сообщение без статуса read - одна галочка, без класса read', () => {
     const out = ticksHtml({ out: true, status: 'sent' });
-    expect(out).toContain('✓');
-    expect(out).not.toContain('✓✓');
+    expect(out).toContain(ICON_CHECK);
+    expect(out.split(ICON_CHECK).length - 1).toBe(1);
     expect(out).not.toContain('read');
   });
 
   it('своё сообщение со статусом read - двойная галочка и класс read', () => {
     const out = ticksHtml({ out: true, status: 'read' });
-    expect(out).toContain('✓✓');
+    expect(out.split(ICON_CHECK).length - 1).toBe(2);
     expect(out).toContain('class="ticks read"');
   });
 
