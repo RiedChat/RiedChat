@@ -115,6 +115,21 @@
 .image-tap-load{ cursor:pointer; }
 .image-tap-load .video-tap-load-play{ padding-left:0; font-size:1.4rem; }
 
+/* Имя/тип файла (.apk/.zip/.pdf и т.п.) на плашке "нажмите, чтобы загрузить"
+   generic-вложения - под круглой иконкой 📎, см. bubble-renderers.js. */
+.file-tap-load-name{
+  position:absolute; left:8px; right:8px; bottom:10px;
+  text-align:center; color:#fff; font-size:.8rem; line-height:1.2;
+  text-shadow:0 1px 3px rgba(0,0,0,.6);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+
+/* Ссылка-превью уже скачанного и расшифрованного generic-файла
+   (см. media-loader.js:loadEncryptedMedia) - имя может быть длинным
+   (например, полное имя .apk), обрезаем многоточием в один ряд. */
+.file-download-link{ display:flex; align-items:center; gap:6px; max-width:100%; }
+.file-download-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
 /* Время/замок поверх фото или видео - без сплошной чёрной плашки (она выглядела
    грубым чёрным прямоугольником поверх кадра). Вместо фона - текстовая тень,
    как в Telegram: белый текст читается на любом фоне сам по себе. */

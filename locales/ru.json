@@ -250,6 +250,7 @@
   "media": {
     "loading": "загрузка медиа…",
     "loadingPercent": "загрузка медиа… {percent}%",
+    "tapToLoad": "нажмите, чтобы загрузить",
     "decryptFailed": "не удалось расшифровать файл (открыть ссылку)",
     "openFullscreen": "Открыть на весь экран",
     "downloadFile": "скачать файл",

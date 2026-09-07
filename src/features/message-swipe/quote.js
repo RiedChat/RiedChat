@@ -5,6 +5,7 @@ import { stripQuotedBody } from '../../core/text-patterns.js';
 import { cancelEdit } from '../message-edit.js';
 import { KIND_LABEL } from './shared.js';
 import { t } from '../../i18n/t.js';
+import { classifySingleMedia } from '../../ui/chat-view/message-body-html.js';
 
 const S = state;
 
@@ -14,7 +15,21 @@ export function startReply(msg, bubble){
   // другое сообщение, сбрасываем это состояние (вместе с текстом в поле ввода),
   // прежде чем открыть цитату (см. features/message-edit.js:cancelEdit).
   if(S.editing) cancelEdit();
-  const kind = bubble.dataset.kind;
+  // bubble.dataset.kind надёжен ТОЛЬКО для "чистого" медиа-сообщения (см.
+  // ui/chat-view/media-loader.js:loadEncryptedMedia - data-kind проставляется
+  // лишь при isMediaOnly, т.е. host.classList.contains('media-frame')). Если
+  // это медиа-сообщение, отправленное вместе с цитатой (см. net/upload.js:
+  // _composeBody), оно рендерится как обычный текстовый пузырь с инлайн-медиа
+  // (.media-embed, не .media-frame) - там data-kind никогда не выставляется, и
+  // цитирование такого сообщения раньше уходило в текстовую ветку ниже, что
+  // при обрезке до 160 символов ломало саму aesgcm://-ссылку. Поэтому при
+  // отсутствии надёжного dataset.kind распознаём медиа по самому телу
+  // сообщения (без унаследованной цитаты, см. stripQuotedBody ниже) -
+  // тем же способом, что и рендер (classifySingleMedia).
+  const ownTextForKind = stripQuotedBody(msg.body || '');
+  const domKind = bubble.dataset.kind && bubble.dataset.kind !== 'text' ? bubble.dataset.kind : null;
+  const detectedMedia = domKind ? null : classifySingleMedia(ownTextForKind);
+  const kind = domKind || (detectedMedia && detectedMedia.kind);
   const contact = S.roster[S.activeChat];
   // Везде в интерфейсе (ростер, шапка чата, звонки) актуальное отображаемое
   // имя - это contact.nick (текущий ник контакта), а contact.name - лишь
@@ -36,25 +51,24 @@ export function startReply(msg, bubble){
   let text;
   if(kind && KIND_LABEL[kind]){
     // Тело медиа-сообщения - это и есть точная ссылка на файл (см.
-    // net/media.js/classifySingleMedia) - используем её целиком как текст
-    // цитаты, БЕЗ усечения до 160 символов (как в ветке ниже для обычного
-    // текста). Раньше тут писалась только общая метка вида "📷 Фото", из-за
-    // чего клик по такой цитате (features/quote-jump.js) не мог отличить
-    // ЭТО фото от любого другого фото/видео/голосового в чате того же типа
-    // и переходил к произвольному (обычно ближайшему/последнему) совпадению.
-    // Дружелюбную метку вместо сырой ссылки рисуем отдельно при рендере
-    // (см. ui/chat-view/message-body-html.js) - то, что реально уходит в
-    // тело сообщения, при этом не меняется.
-    text = (msg.body || '').trim();
+    // classifySingleMedia) - используем её целиком как текст цитаты, БЕЗ
+    // усечения до 160 символов (как в ветке ниже для обычного текста):
+    // обрезанная aesgcm://-ссылка не проходит classifySingleMedia на
+    // приёмной стороне и рендерится битым текстом вместо превью. Дружелюбную
+    // метку вместо сырой ссылки рисуем отдельно при рендере (см.
+    // ui/chat-view/message-body-html.js) - то, что реально уходит в тело
+    // сообщения (text здесь), при этом не меняется. ownTextForKind - тело
+    // БЕЗ унаследованной цитаты (см. комментарий про domKind/stripQuotedBody выше).
+    text = ownTextForKind.trim();
   } else {
     // msg.body здесь может САМ быть ответом на ответ, т.е. уже содержать
     // свой ведущий блок "> автор:\n> текст\n\n" (см. buildQuotedBody в
     // net/messaging/outgoing.js). Без этой очистки новая цитата собиралась
     // бы поверх старой и при каждом следующем ответе в цепочке "> " накапливались
     // вложенно ("ты > сказал > это" вместо текста последнего сообщения) -
-    // отрезаем чужой блок цитаты и берём только реальный текст ЭТОГО сообщения.
-    const ownText = stripQuotedBody(msg.body || '');
-    const raw = ownText.replace(/\s+/g, ' ').trim();
+    // отрезаем чужой блок цитаты и берём только реальный текст ЭТОГО сообщения
+    // (ownTextForKind - тот же stripQuotedBody, вычислен выше).
+    const raw = ownTextForKind.replace(/\s+/g, ' ').trim();
     text = raw.length > 160 ? raw.slice(0, 160) + '…' : raw;
   }
   // kind сохраняем отдельно от текста, чтобы плашка "Ответ ..." над полем

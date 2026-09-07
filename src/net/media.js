@@ -14,7 +14,7 @@
 import { debugLog } from '../core/debug-log.js';
 import { history } from './history.js';
 import { state } from '../core/state.js';
-import { kindOfMime, extOf, kindOf, isVideoNote, isSticker, isStickerPack } from './media/mime-kind.js';
+import { kindOfMime, extOf, fileNameOf, kindOf, isVideoNote, isSticker, isStickerPack } from './media/mime-kind.js';
 import { request, requestFireAndForget } from './media/worker-client.js';
 import { extractThumbDataUrl } from './media/thumb-codec.js';
 
@@ -33,7 +33,7 @@ export const media = {
   // матчатся ровно так же, как раньше.
   AESGCM_RE: /aesgcm:\/\/[^\s#]+#[0-9a-fA-F]+(?:;t=[A-Za-z0-9_-]+)?/g,
 
-  kindOfMime, extOf, kindOf, isVideoNote, isSticker, isStickerPack,
+  kindOfMime, extOf, fileNameOf, kindOf, isVideoNote, isSticker, isStickerPack,
 
   // Достаёт встроенное превью-кадра прямо из ссылки, без сети и без
   // расшифровки вложения - см. ui/chat-view/media-loader.js.

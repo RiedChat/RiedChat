@@ -53,9 +53,13 @@ export function wireSwipeGesture(container, rowSelector, opts){
       row, bubble, item, pointerId: e.pointerId,
       x0: e.clientX, y0: e.clientY, axis: null, dx: 0, hints: null,
     };
-    // Захватываем указатель на строке (а не на пузыре) - тогда move/up доходят до нас
-    // независимо от того, где именно в строке начался жест и куда он потом уедет.
-    try{ row.setPointerCapture(e.pointerId); }catch(err){ /* Safari<13 - просто без capture */ }
+    // setPointerCapture ЗДЕСЬ не берём (раньше брали сразу). Спецификация
+    // Pointer Events при захвате перенаправляет последующий click на
+    // захвативший элемент (row) вместо реального target - если это видео/
+    // ссылка на фото под пальцем, обычный тап без сдвига (открыть медиа)
+    // ломался бы каждый раз, даже когда пользователь не свайпал. Поэтому
+    // capture откладываем до onPointerMove - до того момента, когда жест уже
+    // точно распознан как горизонтальный свайп, а не тап.
   }
 
   function onPointerMove(e){
@@ -67,6 +71,12 @@ export function wireSwipeGesture(container, rowSelector, opts){
       if(Math.abs(dx) < AXIS_LOCK && Math.abs(dy) < AXIS_LOCK) return;
       g.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
       if(g.axis === 'x'){
+        // Захватываем указатель ТОЛЬКО теперь, когда жест уже точно
+        // горизонтальный свайп, а не вертикальный скролл и не тап по видео/
+        // ссылке (см. комментарий в onPointerDown выше) - тогда move/up
+        // доходят до нас независимо от того, куда жест потом уедет, но
+        // обычный клик по медиа без сдвига по-прежнему работает как обычно.
+        try{ g.row.setPointerCapture(e.pointerId); }catch(err){ /* Safari<13 - просто без capture */ }
         const leftGlyph = opts.leftHintGlyph ? opts.leftHintGlyph(g.row, g.item) : '↩';
         const rightGlyph = opts.rightHintGlyph ? opts.rightHintGlyph(g.row, g.item) : '⧉';
         g.hints = createSwipeHints(g.row, g.bubble, leftGlyph, rightGlyph);

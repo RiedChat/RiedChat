@@ -5,15 +5,18 @@
 // Каждый рендерер принимает разобранное сообщение/singleMedia и общие поля
 // разметки ({lock, time, ticks, nextSeq}) и возвращает {html, media}, где
 // media - список того, что нужно догрузить ПОСЛЕ вставки html в DOM:
-// {type:'voice'|'deferrable', id, url, holdOff}.
+// {type:'deferrable', id, url, holdOff} - голосовые теперь тоже идут этим
+// типом (см. features/audio-settings.js), а не отдельным 'voice' без holdOff.
 import { html, raw } from '../../core/safe-html.js';
 import { escapeHtml } from '../../core/dom-utils.js';
 import { media } from '../../net/media.js';
 import { formatMessageBody } from './message-body-html.js';
 import { loadVideoAutoDownloadEnabled } from '../../features/video-settings.js';
+import { loadAudioAutoDownloadEnabled } from '../../features/audio-settings.js';
 import { loadVideoNoteAutoDownloadEnabled } from '../../features/video-note-settings.js';
 import { loadImageAutoDownloadEnabled } from '../../features/image-settings.js';
 import { loadStickerAutoDownloadEnabled } from '../../features/sticker-settings.js';
+import { loadFileAutoDownloadEnabled } from '../../features/file-settings.js';
 import { isTrustedContact } from '../../net/trusted-contacts.js';
 import { state } from '../../core/state.js';
 import { t } from '../../i18n/t.js';
@@ -30,18 +33,32 @@ export function ticksHtml(m){
   return String(html`<span class="ticks${raw(read ? ' read' : '')}" title="${read ? t('message.read') : t('message.sent')}">${raw(glyph)}</span>`);
 }
 
-function renderVoiceBubble(singleMedia, {lock, time, ticks, nextSeq}){
+function renderVoiceBubble(m, singleMedia, {lock, time, ticks, nextSeq}){
   // Голосовое/аудио - компактный пузырь с минимальными отступами (не "встык",
   // плееру нужен свой контраст с фоном, но лишний паддинг убираем).
   // Время сообщения - оверлеем в правый нижний угол пузыря (как у фото/видео,
   // см. .bubble-time.overlay), а не отдельной строкой в потоке - так оно не
   // участвует в раскладке и не может влиять на высоту пузыря.
   const id = 'media-' + nextSeq() + '-0';
+  // Свои же исходящие голосовые (m.out) всегда показываем сразу - файл уже
+  // есть у нас на руках (media.primeLocalBlob), скачивать нечего. Для чужих -
+  // только если явно включена автозагрузка (features/audio-settings.js) ИЛИ
+  // файл уже лежит в постоянном кэше с прошлой сессии.
+  const alreadyCached = media.getCached(singleMedia.url);
+  const notCachedYet = !(alreadyCached && alreadyCached.status === 'done');
+  const holdOff = !m.out && notCachedYet && !loadAudioAutoDownloadEnabled();
+  // Родительский .media-frame получает класс video-tap-load (см. ниже) -
+  // именно он даёт cursor:pointer (media-messages.css:.video-tap-load), тут
+  // нужна только текстовая метка без визуального веса круглой play-кнопки
+  // (.video-tap-load-play рассчитана на поверх-фото/видео оверлей, здесь не подходит).
+  const frameHtml = holdOff
+    ? `<span class="media-loading">▶ ${t('media.tapToLoad')}</span>`
+    : `<span class="media-loading">⏳ ${t('media.loading')}</span>`;
   const bubbleHtml = String(html`<div class="bubble voice-only" data-kind="audio">
-    <div class="media-frame" id="${id}"><span class="media-loading">⏳ ${t('media.loading')}</span></div>
+    <div class="media-frame${raw(holdOff ? ' video-tap-load' : '')}" id="${id}">${raw(frameHtml)}</div>
     <span class="bubble-time overlay voice-overlay-time">${raw(lock)}${raw(time)}${raw(ticks)}</span>
   </div>`);
-  return { html: bubbleHtml, media: [{type:'voice', id, url: singleMedia.url}] };
+  return { html: bubbleHtml, media: [{type:'deferrable', id, url: singleMedia.url, holdOff}] };
 }
 
 function renderMediaOnlyBubble(m, singleMedia, {lock, time, ticks, nextSeq}){
@@ -64,10 +81,20 @@ function renderMediaOnlyBubble(m, singleMedia, {lock, time, ticks, nextSeq}){
   const holdOff = !m.out && notCachedYet && (
     isNote ? !loadVideoNoteAutoDownloadEnabled() :
     isSticker ? !loadStickerAutoDownloadEnabled() :
-    singleMedia.kind === 'video' && !loadVideoAutoDownloadEnabled()
+    singleMedia.kind === 'video' ? !loadVideoAutoDownloadEnabled() :
+    // Обычный файл-вложение (.pdf/.docx/.zip и т.п., см. features/file-settings.js) -
+    // без этой ветки singleMedia.kind === 'video' был бы false и holdOff всегда
+    // выходил бы false, т.е. любой файл от кого угодно скачивался бы и
+    // расшифровывался сразу же, в обход настройки.
+    singleMedia.kind === 'file' && !loadFileAutoDownloadEnabled()
   );
   const noteBoxClass = isNote ? 'video-note-box' : 'video-ratio-box';
-  const tapIcon = isSticker ? '🖼️' : '▶';
+  const tapIcon = isSticker ? '🖼️' : singleMedia.kind === 'file' ? '📎' : '▶';
+  // Имя и расширение файла (.apk/.zip/.pdf и т.п.) видны прямо в самой
+  // aesgcm-ссылке ДО расшифровки - показываем их уже на плашке
+  // "нажмите, чтобы загрузить", а не только после тапа (см. media-loader.js).
+  const fileName = singleMedia.kind === 'file' ? media.fileNameOf(singleMedia.url) : '';
+  const fileExt = singleMedia.kind === 'file' ? media.extOf(fileName).toUpperCase() : '';
   // Превью, встроенное отправителем в саму ссылку (см.
   // net/media/thumb-codec.js) - показываем СРАЗУ фоном плейсхолдера, ещё
   // до скачивания/расшифровки и даже до тапа "загрузить". Только для
@@ -75,10 +102,17 @@ function renderMediaOnlyBubble(m, singleMedia, {lock, time, ticks, nextSeq}){
   // (незачем: картинка сама по себе и есть свой собственный кадр).
   const thumbDataUrl = singleMedia.kind === 'video' ? media.extractThumbDataUrl(singleMedia.url) : null;
   const thumbStyle = thumbDataUrl ? ` style="background-image:url('${thumbDataUrl}');background-size:cover;background-position:center"` : '';
+  // Для файла показываем имя/тип уже на самой плашке "нажмите, чтобы
+  // загрузить" - до тапа и расшифровки (имя видно прямо в ссылке, см.
+  // fileName/fileExt выше); экранируем вручную - в отличие от html`...`
+  // ниже по файлу, frameHtml тут собирается обычной строкой.
+  const fileNameCaption = singleMedia.kind === 'file'
+    ? `<span class="file-tap-load-name">${escapeHtml(fileName)}${fileExt ? ' · ' + escapeHtml(fileExt) : ''}</span>`
+    : '';
   const frameHtml = holdOff
-    ? `<div class="${noteBoxClass}"${thumbStyle}><div class="video-tap-load-overlay"><span class="video-tap-load-play">${tapIcon}</span></div></div>`
+    ? `<div class="${noteBoxClass}"${thumbStyle}><div class="video-tap-load-overlay"><span class="video-tap-load-play">${tapIcon}</span>${fileNameCaption}</div></div>`
     : `<span class="media-loading"${thumbStyle}>⏳ ${t('media.loading')}</span>`;
-  // singleMedia.kind - 'image'/'video'/'audio', только из media.kindOf
+  // singleMedia.kind - 'image'/'video'/'audio'/'file', только из media.kindOf
   // (фиксированный набор строк), не пользовательский ввод - raw ок.
   const bubbleHtml = String(html`<div class="bubble media-only${raw(isNote ? ' video-note' : '')}" data-kind="${singleMedia.kind}">
     <div class="media-frame${raw(holdOff ? ' video-tap-load' : '')}" id="${id}">${raw(frameHtml)}</div>
@@ -137,7 +171,7 @@ function renderTextBubble(m, {lock, time, ticks, nextSeq}){
   const mediaList = mediaPlaceholders.map(({id, url, holdOff, kind}) => ({type: kind === 'plain-image' ? 'plain-image' : 'deferrable', id, url, holdOff}));
   // Миниатюра внутри самой цитаты (фото/видео/кружок/стикер) - отдельный тип
   // догрузки, см. ui/chat-view/media-loader.js:loadQuoteThumb и render-messages.js.
-  if(quoteMedia) mediaList.push({type: 'quote-thumb', id: quoteMedia.id, url: quoteMedia.url, kind: quoteMedia.kind, isNote: quoteMedia.isNote});
+  if(quoteMedia) mediaList.push({type: 'quote-thumb', id: quoteMedia.id, url: quoteMedia.url, kind: quoteMedia.kind, isNote: quoteMedia.isNote, holdOff: quoteMedia.holdOff});
   return { html: bubbleHtml, media: mediaList };
 }
 
@@ -145,7 +179,7 @@ function renderTextBubble(m, {lock, time, ticks, nextSeq}){
 // если сообщение без единственного медиа-вложения).
 export function renderBubble(m, singleMedia, ctx){
   if(singleMedia && singleMedia.kind === 'stickerpack') return renderStickerPackBubble(singleMedia, ctx);
-  if(singleMedia && singleMedia.kind === 'audio') return renderVoiceBubble(singleMedia, ctx);
+  if(singleMedia && singleMedia.kind === 'audio') return renderVoiceBubble(m, singleMedia, ctx);
   if(singleMedia && singleMedia.encrypted) return renderMediaOnlyBubble(m, singleMedia, ctx);
   if(singleMedia) return renderPlainImageBubble(m, singleMedia, ctx);
   return renderTextBubble(m, ctx);

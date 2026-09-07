@@ -17,6 +17,18 @@ export function extOf(url){
   return m ? m[1].toLowerCase() : '';
 }
 
+// Настоящее имя файла из ссылки (для превью/скачивания generic-файлов -
+// .apk/.zip/.pdf и т.п., см. ui/chat-view/bubble-renderers.js и
+// ui/chat-view/media-loader.js). Работает и для aesgcm://, и для обычных
+// https:// ссылок - хвост после # (ключ/превью) и query-параметры уже
+// отрезаны до вызова decodeURIComponent, чтобы percent-encoding из самого
+// имени файла не ломался на невалидной последовательности.
+export function fileNameOf(url){
+  const clean = String(url || '').split('#')[0].split('?')[0];
+  const last = clean.split('/').pop() || '';
+  try{ return decodeURIComponent(last); }catch(e){ return last; }
+}
+
 export function kindOf(ext){
   if(['jpg','jpeg','png','gif','webp'].includes(ext)) return 'image';
   if(['mp4','webm','mov','ogv'].includes(ext)) return 'video';

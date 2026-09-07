@@ -5,6 +5,7 @@ vi.mock('../../../src/net/media.js', () => ({
 }));
 vi.mock('../../../src/ui/chat-view/message-body-html.js', () => ({ formatMessageBody: vi.fn() }));
 vi.mock('../../../src/features/video-settings.js', () => ({ loadVideoAutoDownloadEnabled: vi.fn(() => false) }));
+vi.mock('../../../src/features/audio-settings.js', () => ({ loadAudioAutoDownloadEnabled: vi.fn(() => true) }));
 vi.mock('../../../src/features/video-note-settings.js', () => ({ loadVideoNoteAutoDownloadEnabled: vi.fn(() => false) }));
 vi.mock('../../../src/features/image-settings.js', () => ({ loadImageAutoDownloadEnabled: vi.fn(() => false) }));
 vi.mock('../../../src/features/sticker-settings.js', () => ({ loadStickerAutoDownloadEnabled: vi.fn(() => false) }));
@@ -60,10 +61,27 @@ describe('renderBubble - диспетчеризация по типу singleMedi
     expect(res.media).toEqual([{ type: 'stickerpack', id: expect.any(String), url: 'http://x/pack.zip' }]);
   });
 
-  it('singleMedia.kind === audio - голосовой пузырь, media type voice', () => {
+  it('singleMedia.kind === audio - голосовой пузырь, media type deferrable, holdOff по настройке автозагрузки', () => {
     const res = renderBubble({ out: false }, { kind: 'audio', url: 'aesgcm://host/v.ogg#key' }, ctx);
     expect(res.html).toContain('voice-only');
-    expect(res.media).toEqual([{ type: 'voice', id: expect.any(String), url: 'aesgcm://host/v.ogg#key' }]);
+    expect(res.media).toEqual([{ type: 'deferrable', id: expect.any(String), url: 'aesgcm://host/v.ogg#key', holdOff: false }]);
+  });
+
+  it('чужое голосовое без включённой автозагрузки - holdOff:true, плейсхолдер "нажмите, чтобы загрузить"', async () => {
+    const { loadAudioAutoDownloadEnabled } = await import('../../../src/features/audio-settings.js');
+    loadAudioAutoDownloadEnabled.mockReturnValue(false);
+    const res = renderBubble({ out: false }, { kind: 'audio', url: 'aesgcm://host/v.ogg#key' }, ctx);
+    expect(res.html).toContain('video-tap-load');
+    expect(res.media[0].holdOff).toBe(true);
+    loadAudioAutoDownloadEnabled.mockReturnValue(true);
+  });
+
+  it('своё исходящее голосовое - holdOff всегда false, даже если автозагрузка выключена', async () => {
+    const { loadAudioAutoDownloadEnabled } = await import('../../../src/features/audio-settings.js');
+    loadAudioAutoDownloadEnabled.mockReturnValue(false);
+    const res = renderBubble({ out: true }, { kind: 'audio', url: 'aesgcm://host/v.ogg#key' }, ctx);
+    expect(res.media[0].holdOff).toBe(false);
+    loadAudioAutoDownloadEnabled.mockReturnValue(true);
   });
 
   it('singleMedia.encrypted=true (не audio/stickerpack) - media-only пузырь, media type deferrable', () => {

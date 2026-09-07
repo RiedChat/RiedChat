@@ -13,7 +13,7 @@ import { debugLog } from '../../core/debug-log.js';
 import { ticksHtml, renderBubble } from './bubble-renderers.js';
 import { classifySingleMedia } from './message-body-html.js';
 import { _watchUnreadDivider, _stopUnreadTracking } from './unread-tracking.js';
-import { loadEncryptedMedia, loadPlainImage, loadQuoteThumb, _loadMediaOrDeferForVideo } from './media-loader.js';
+import { loadEncryptedMedia, loadPlainImage, _loadQuoteThumbOrDefer, _loadMediaOrDeferForVideo } from './media-loader.js';
 import { t } from '../../i18n/t.js';
 import { ICON_LOCK_CLOSED, ICON_LOCK_OPEN } from '../../core/icons.js';
 
@@ -85,9 +85,11 @@ function renderMessageRow(el, m, mIdx, ctx){
       else if(type === 'stickerpack') import('../../features/stickers/pack-card.js').then(m => m.loadStickerPackCard(id, url, senderJid));
       // Миниатюра фото/видео/кружка/стикера ВНУТРИ самой цитаты (см.
       // ui/chat-view/message-body-html.js:formatMessageBody) - отдельная,
-      // более лёгкая догрузка: только маленькая картинка/кадр, без плеера
-      // и без плашки "нажмите, чтобы загрузить".
-      else if(type === 'quote-thumb') loadQuoteThumb(id, url, kind, isNote, senderJid);
+      // более лёгкая догрузка: только маленькая картинка/кадр, без плеера.
+      // holdOff (см. message-body-html.js) - когда автозагрузка выключена,
+      // расшифровка запускается только по тапу (плашка "нажмите, чтобы
+      // загрузить"), а не сразу при рендере.
+      else if(type === 'quote-thumb') _loadQuoteThumbOrDefer(id, url, kind, isNote, senderJid, holdOff);
       else _loadMediaOrDeferForVideo(id, url, holdOff, senderJid);
     });
   }catch(e){

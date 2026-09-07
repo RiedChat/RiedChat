@@ -121,6 +121,21 @@
   position:absolute; inset:0; width:100%; height:100%;
   display:block; object-fit:cover; object-position:center; border-radius:0;
 }
+/* Кружок (features/video-note.js) ВНУТРИ обычного текстового пузыря - т.е.
+   отправленный/полученный ВМЕСТЕ с цитатой (см. net/upload.js:_composeBody,
+   ui/chat-view/message-body-html.js). В "чистом" медиа-сообщении за круглую
+   форму отвечает .bubble.media-only .media-frame .video-note-box
+   (css/media-messages.css) - тот селектор здесь не подходит, бабл не
+   media-only. Тот же диаметр 200px, что и там, но без специфичных для
+   media-only оверлеев (обрезка по кругу самого пузыря/кнопка на его углу
+   тут не нужны - пузырь остаётся обычным прямоугольным текстовым). */
+.bubble .video-note-box{
+  position:relative; display:block; width:200px; height:200px; max-width:100%;
+  margin-top:6px; border-radius:50%; overflow:hidden; background:var(--ink-05);
+}
+.bubble .video-note-box video{
+  display:block; width:100%; height:100%; object-fit:cover; object-position:center; border-radius:50%;
+}
 .bubble .media-embed{ margin-top:6px; }
 .bubble .media-loading{ opacity:0.6; font-size:calc(var(--chat-font-size, 0.9062rem) * 0.8966); font-style:italic; }
 .bubble a{ color:inherit; text-decoration:underline; }

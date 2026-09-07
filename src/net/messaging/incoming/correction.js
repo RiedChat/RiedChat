@@ -29,8 +29,18 @@ export async function handleCorrection(stanza, bare){
 
   const list = S.messages[bare];
   if(!list) return;
-  const target = list.find(m => m && m.id === targetId);
-  if(!target) return; // сообщение ещё не попало в локальную историю - тихо игнорируем
+  // XEP-0308 разрешает исправлять только своё же сообщение: правку из чата
+  // с контактом (bare !== myBareJid) можно применять лишь к сообщению,
+  // которое реально прислал этот контакт (out:false) - иначе собеседник
+  // мог бы прислать <replace id="..."> с id НАШЕГО исходящего сообщения
+  // (out:true) и подменить в нашей же истории то, что мы якобы написали
+  // сами (подделка переписки). Симметрично: эхо собственной правки самим
+  // себе (bare === myBareJid) может относиться только к нашему же
+  // исходящему сообщению (out:true), см. net/messaging/outgoing/edit.js,
+  // где та же проверка сделана на исходящем пути.
+  const expectedOut = bare === S.myBareJid;
+  const target = list.find(m => m && m.id === targetId && !!m.out === expectedOut);
+  if(!target) return; // сообщение ещё не попало в локальную историю или чужое - тихо игнорируем
   target.body = parsed.body;
   target.encrypted = parsed.encrypted;
   target.edited = true;

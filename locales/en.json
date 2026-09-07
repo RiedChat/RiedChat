@@ -250,6 +250,7 @@
   "media": {
     "loading": "loading media…",
     "loadingPercent": "loading media… {percent}%",
+    "tapToLoad": "tap to load",
     "decryptFailed": "failed to decrypt file (open link)",
     "openFullscreen": "Open fullscreen",
     "downloadFile": "download file",

@@ -8,8 +8,10 @@ import { state } from '../../core/state.js';
 import * as wallpaperModal from '../wallpaper/modal.js';
 import * as videoSettings from '../video-settings.js';
 import * as videoNoteSettings from '../video-note-settings.js';
+import * as audioSettings from '../audio-settings.js';
 import * as imageSettings from '../image-settings.js';
 import * as stickerSettings from '../sticker-settings.js';
+import * as fileSettings from '../file-settings.js';
 import * as swipeSettings from '../swipe-settings.js';
 import * as themeSettings from '../theme-settings.js';
 import { loadProfile, saveProfile } from '../../net/vcard-storage.js';
@@ -35,8 +37,10 @@ function openProfileModal(){
   wallpaperModal.openInModal();
   videoSettings.openInModal();
   videoNoteSettings.openInModal();
+  audioSettings.openInModal();
   imageSettings.openInModal();
   stickerSettings.openInModal();
+  fileSettings.openInModal();
   swipeSettings.openInModal();
   themeSettings.openInModal();
 
@@ -71,8 +75,10 @@ export function wireProfile(){
     wallpaperModal.commit();
     videoSettings.commit();
     videoNoteSettings.commit();
+    audioSettings.commit();
     imageSettings.commit();
     stickerSettings.commit();
+    fileSettings.commit();
     swipeSettings.commit();
     themeSettings.commit();
 

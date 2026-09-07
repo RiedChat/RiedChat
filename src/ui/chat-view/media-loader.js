@@ -101,6 +101,32 @@ export async function loadQuoteThumb(placeholderId, aesgcmUrl, kind, isNote, sen
   }
 }
 
+// Миниатюра в цитате (см. loadQuoteThumb ниже) с учётом настройки
+// автозагрузки (features/image-settings.js) - если holdOff, вешаем на
+// плейсхолдер обработчик клика вместо немедленной расшифровки, по той же
+// схеме, что и _loadMediaOrDeferForVideo выше.
+export function _loadQuoteThumbOrDefer(placeholderId, aesgcmUrl, kind, isNote, senderJid, holdOff){
+  if(!holdOff){
+    loadQuoteThumb(placeholderId, aesgcmUrl, kind, isNote, senderJid);
+    return;
+  }
+  const host = document.getElementById(placeholderId);
+  if(!host){ loadQuoteThumb(placeholderId, aesgcmUrl, kind, isNote, senderJid); return; }
+  let started = false;
+  const startLoad = () => {
+    if(started) return;
+    started = true;
+    host.classList.remove('image-tap-load', 'video-tap-load');
+    loadQuoteThumb(placeholderId, aesgcmUrl, kind, isNote, senderJid);
+  };
+  host.addEventListener('click', startLoad, {once: true});
+  // Как и в _loadMediaOrDeferForVideo: если файл уже есть в постоянном
+  // кэше (скачан раньше), догружаем сразу, без ожидания тапа.
+  if(history && history.getMediaEntry){
+    history.getMediaEntry(aesgcmUrl).then(rec => { if(rec) startLoad(); }).catch(() => {});
+  }
+}
+
 // Скачивает и расшифровывает файл по aesgcm:// ссылке, затем подменяет
 // плейсхолдер на <img>/<video>/<audio> с blob-URL (или ссылку-фолбэк при ошибке).
 export async function loadEncryptedMedia(placeholderId, aesgcmUrl, senderJid){
@@ -151,23 +177,34 @@ export async function loadEncryptedMedia(placeholderId, aesgcmUrl, senderJid){
         return;
       }
       const {blobUrl, kind} = entry;
+      // Настоящее имя файла - из самой ссылки (media.fileNameOf уже режет
+      // query/#-хвост с ключом), а не из blob-URL (тот - случайный
+      // internal-идентификатор вида blob:https://.../<uuid>, без него и
+      // download, и превью показывали бы "зашифрованное" имя вместо
+      // исходного document.pdf/app.apk и т.п.).
+      const guessedExt = kind === 'image' ? '.jpg' : kind === 'video' ? '.mp4' : kind === 'audio' ? '.mp3' : '';
+      const rawName = media.fileNameOf(aesgcmUrl);
+      const downloadName = rawName || (kind + guessedExt);
       if(bubble){
         bubble.dataset.kind = kind;
         bubble.dataset.downloadUrl = blobUrl;
-        const guessedExt = kind === 'image' ? '.jpg' : kind === 'video' ? '.mp4' : kind === 'audio' ? '.mp3' : '';
-        const rawName = decodeURIComponent((aesgcmUrl.split('#')[0].split('/').pop() || '').split('?')[0]);
-        bubble.dataset.downloadName = rawName || (kind + guessedExt);
+        bubble.dataset.downloadName = downloadName;
       }
       if(kind === 'image'){
         setHTML(host, html`<a href="${blobUrl}" target="_blank" rel="noopener"><img src="${blobUrl}"></a>`);
       } else if(kind === 'video'){
         // Кружок (features/video-note.js) - круглый плеер без рамки 16:9, но
         // с той же кнопкой "на весь экран", что и у обычного видео ниже
-        // (.media-expand-btn, см. modals.css/media-viewer.js).
-        let isNoteVideo = false;
-        if(bubble && bubble.classList.contains('video-note')){
+        // (.media-expand-btn, см. modals.css/media-viewer.js). Определяем по
+        // самой ссылке (media.isVideoNote), а не по классу .bubble.video-note -
+        // тот класс есть только у "чистого" медиа-сообщения (см. renderMediaOnlyBubble
+        // в bubble-renderers.js); у кружка, отправленного вместе с цитатой,
+        // сообщение рендерится обычным текстовым пузырём без этого класса
+        // (bubble здесь вообще null, см. isMediaOnly выше), и раньше такой
+        // кружок терял круглую форму, растягиваясь в обычную 16:9-рамку.
+        const isNoteVideo = media.isVideoNote(aesgcmUrl);
+        if(isNoteVideo){
           setHTML(host, html`<div class="video-note-box"><video src="${blobUrl}" controls preload="auto" playsinline loop></video><button type="button" class="media-expand-btn" title="${t('media.openFullscreen')}">⛶</button></div>`);
-          isNoteVideo = true;
         } else {
           // Рамка всегда строго 16:9 через классический padding-top hack (а не CSS aspect-ratio,
           // который может не поддерживаться в старых WebView) - видео заполняет её целиком
@@ -201,7 +238,12 @@ export async function loadEncryptedMedia(placeholderId, aesgcmUrl, senderJid){
         mountVoicePlayer(host, blobUrl);
       } else {
         if(isMediaOnly) host.style.padding = '14px 16px';
-        setHTML(host, html`<a href="${blobUrl}" target="_blank" rel="noopener" download>📎 ${t('media.downloadFile')}</a>`);
+        // download="${downloadName}" - без значения атрибута браузер вместо
+        // исходного имени файла подставляет случайный blob-идентификатор
+        // (см. комментарий выше про rawName/downloadName), и скачивался файл
+        // без имени/расширения. Тут же показываем то же имя в самом
+        // превью-линке, а не только общую надпись "Скачать файл".
+        setHTML(host, html`<a href="${blobUrl}" target="_blank" rel="noopener" download="${downloadName}" class="file-download-link">📎 <span class="file-download-name">${downloadName}</span></a>`);
       }
       rescrollIfWasAtBottom();
 }

@@ -70,6 +70,28 @@ describe('handleCorrection', () => {
     expect(history.saveThread).toHaveBeenCalledWith('alice@example.com', state.messages['alice@example.com']);
   });
 
+  it('не даёт контакту через <replace> подменить НАШЕ исходящее сообщение (out:true) в истории', async () => {
+    parseMessageBody.mockResolvedValue({ body: 'подделанный текст', encrypted: false });
+    const ourOwnMessage = { id: 'm1', body: 'то, что мы реально написали', out: true };
+    state.messages['alice@example.com'] = [ourOwnMessage];
+
+    await handleCorrection(fakeStanza({ targetId: 'm1' }), 'alice@example.com');
+
+    expect(ourOwnMessage.body).toBe('то, что мы реально написали');
+    expect(history.saveThread).not.toHaveBeenCalled();
+  });
+
+  it('эхо собственной правки самому себе не может подменить входящее сообщение контакта (out:false)', async () => {
+    parseMessageBody.mockResolvedValue({ body: 'подделанный текст', encrypted: true });
+    const contactsMessage = { id: 'm1', body: 'то, что реально написала Алиса', out: false };
+    state.messages['me@example.com'] = [contactsMessage];
+
+    await handleCorrection(fakeStanza({ targetId: 'm1', encrypted: true }), 'me@example.com');
+
+    expect(contactsMessage.body).toBe('то, что реально написала Алиса');
+    expect(history.saveThread).not.toHaveBeenCalled();
+  });
+
   it('перерисовывает сообщения, только если исправление в активном чате', async () => {
     parseMessageBody.mockResolvedValue({ body: 'x', encrypted: false });
     state.messages['alice@example.com'] = [{ id: 'm1', body: 'старое' }];
