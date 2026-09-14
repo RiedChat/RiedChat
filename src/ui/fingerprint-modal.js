@@ -3,14 +3,15 @@
 // Логика вынесена в ./fingerprint-modal/: templates.js (HTML-шаблоны),
 // pending-section.js (блок "новое устройство ждёт места"),
 // device-list.js (список отпечатков активных/осиротевших устройств).
+import { $ } from '../core/dom-utils.js';
+import { autoTrapModal } from '../core/modal-a11y.js';
 import { html, setHTML } from '../core/safe-html.js';
 import { state } from '../core/state.js';
-import { $ } from '../core/dom-utils.js';
 import { omemo } from '../crypto/omemo/state.js';
-import { autoTrapModal } from '../core/modal-a11y.js';
-import { renderPendingSection } from './fingerprint-modal/pending-section.js';
-import { renderDeviceList } from './fingerprint-modal/device-list.js';
 import { t } from '../i18n/t.js';
+
+import { renderDeviceList } from './fingerprint-modal/device-list.js';
+import { renderPendingSection } from './fingerprint-modal/pending-section.js';
 
 const S = state;
 

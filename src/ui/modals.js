@@ -1,17 +1,18 @@
 // ===================== ui/modals.js =====================
 // Общая confirm-модалка и действие "очистить историю чата", которое её использует.
 import { LS_KEY } from '../core/constants.js';
+import { debugLog } from '../core/debug-log.js';
 import { $, toast } from '../core/dom-utils.js';
 import { clearLastScreen } from '../core/last-seen-storage.js';
+import { trapFocus } from '../core/modal-a11y.js';
 import { state } from '../core/state.js';
 import { lsRemove } from '../core/storage.js';
-import { debugLog } from '../core/debug-log.js';
 import { omemo } from '../crypto/omemo/state.js';
 import { deleteSignalStore } from '../crypto/store.js';
-import { history } from '../net/history.js';
-import { renderMessages } from './chat-view/render-messages.js';
-import { trapFocus } from '../core/modal-a11y.js';
 import { t } from '../i18n/t.js';
+import { history } from '../net/history.js';
+
+import { renderMessages } from './chat-view/render-messages.js';
 
 const S = state;
 
@@ -92,7 +93,7 @@ export async function logout(){
   // Пользователь всё равно уходит из аккаунта - сломанный disconnect()
   // (например, сокет уже мёртв) не должен мешать дальнейшей очистке
   // локального состояния (lsRemove/clearLastScreen ниже).
-  try{ if(S.connection) S.connection.disconnect(); }catch(e){}
+  try{ if(S.connection) S.connection.disconnect(); }catch(_e){}
   lsRemove(LS_KEY);
   clearLastScreen();
   if(jid){

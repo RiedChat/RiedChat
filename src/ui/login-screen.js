@@ -1,13 +1,14 @@
 // ===================== ui/login-screen.js =====================
 // Экран логина: статус подключения, автоподстановка/забыть сохранённый аккаунт.
 import { LS_KEY, LAST_WS_URL_KEY, EXAMPLE_WS_URL, EXAMPLE_JID } from '../core/constants.js';
+import { debugLog } from '../core/debug-log.js';
+import { $ } from '../core/dom-utils.js';
 import { state } from '../core/state.js';
 import { lsGet, lsRemove } from '../core/storage.js';
-import { $ } from '../core/dom-utils.js';
-import { debugLog } from '../core/debug-log.js';
 import { getVaultBlob, flushVaultBlob, markVaultBlobDirty } from '../crypto/omemo-vault.js';
-import { promptVaultPassphrase } from './vault-modal.js';
 import { t } from '../i18n/t.js';
+
+import { promptVaultPassphrase } from './vault-modal.js';
 
 // Проставляет адрес подключения (если он уже когда-то использовался) и
 // пример JID в форму логина. Вызывается один раз при старте, до

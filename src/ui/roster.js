@@ -1,15 +1,15 @@
 // ===================== ui/roster.js =====================
 // Рендер списка контактов (ростера) в сайдбаре.
+import { openChat } from '../app.js';
 import { $, escapeHtml, initials, nickOf } from '../core/dom-utils.js';
+import { ICON_LOCK_CLOSED } from '../core/icons.js';
 import { html, raw, setHTML } from '../core/safe-html.js';
 import { state } from '../core/state.js';
-import { omemo } from '../crypto/omemo/state.js';
-import { openChat } from '../app.js';
-import { media } from '../net/media.js';
 import { splitQuotedBody } from '../core/text-patterns.js';
+import { omemo } from '../crypto/omemo/state.js';
 import { mediaLabel } from '../features/message-swipe.js';
 import { t } from '../i18n/t.js';
-import { ICON_LOCK_CLOSED } from '../core/icons.js';
+import { media } from '../net/media.js';
 
 const S = state;
 

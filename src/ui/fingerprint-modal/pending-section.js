@@ -2,6 +2,7 @@
 // Рендер и обработчики блока "новые устройства ждут места".
 import { raw, setHTML } from '../../core/safe-html.js';
 import { omemo } from '../../crypto/omemo/state.js';
+
 import { pendingDeviceHtml } from './templates.js';
 
 export function renderPendingSection(pendingBox, pending, fps, orphaned, activeChat, onChange){

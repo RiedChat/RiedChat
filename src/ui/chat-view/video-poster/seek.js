@@ -8,7 +8,7 @@ export function seekTo(probe, t, onDone){
   };
   probe.addEventListener('seeked', onSeeked);
   try{ probe.currentTime = t; }
-  catch(e){ probe.removeEventListener('seeked', onSeeked); onDone(); }
+  catch(_e){ probe.removeEventListener('seeked', onSeeked); onDone(); }
 }
 
 // На части браузеров (в первую очередь Safari/iOS) drawImage() из <video>,
@@ -21,7 +21,7 @@ export function primeThenSeek(probe, t, onDone){
   // pause() тут же после play() иногда бросает (гонка с ещё не осевшим
   // play-промисом в части браузеров) - не критично, дальше всё равно сразу
   // вызываем seekTo(), а пауза к этому моменту нужна лишь превентивно.
-  const proceed = () => { try{ probe.pause(); }catch(e){} seekTo(probe, t, onDone); };
+  const proceed = () => { try{ probe.pause(); }catch(_e){} seekTo(probe, t, onDone); };
   const playPromise = probe.play();
   if(playPromise && typeof playPromise.then === 'function'){
     playPromise.then(proceed).catch(proceed);

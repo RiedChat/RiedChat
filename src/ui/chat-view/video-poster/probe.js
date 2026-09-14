@@ -29,9 +29,9 @@ export function createProbe(src){
     // Элемент сейчас же удаляется из DOM (probe.remove() ниже) - pause()/
     // load() на нём в этот момент иногда бросают в отдельных браузерах;
     // раз зонд всё равно уничтожается, ошибку игнорируем.
-    try{ probe.pause(); }catch(e){}
+    try{ probe.pause(); }catch(_e){}
     probe.removeAttribute('src');
-    try{ probe.load(); }catch(e){}
+    try{ probe.load(); }catch(_e){}
     probe.remove();
   };
   // Подстраховка: если что-то из событий так и не сработает (странный файл,

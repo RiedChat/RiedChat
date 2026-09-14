@@ -2,8 +2,9 @@
 // Рендер и обработчики основного списка отпечатков (активные + осиротевшие).
 import { html, raw, setHTML } from '../../core/safe-html.js';
 import { omemo } from '../../crypto/omemo/state.js';
-import { fingerprintRowHtml } from './templates.js';
 import { t } from '../../i18n/t.js';
+
+import { fingerprintRowHtml } from './templates.js';
 
 export function renderDeviceList(list, { deviceIds, fps, orphaned, activeChat, onChange }){
   if(!fps.length && !orphaned.length){
