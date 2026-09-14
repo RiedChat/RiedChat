@@ -5,6 +5,22 @@
 import { createProbe } from './probe.js';
 import { seekTo, primeThenSeek } from './seek.js';
 import { captureFrame } from './capture.js';
+import { createLruMap } from '../../../core/lru-map.js';
+
+// Кэш уже захваченного постера (dataURL) по blobUrl видео. render-messages.js
+// пересобирает список сообщений на каждое новое событие в чате и заново
+// вызывает setPreviewPoster() для видео без встроенного превью (старые
+// сообщения / другие клиенты) - хотя кадр для этого же blobUrl уже был
+// честно захвачен зондом минуту назад. Без кэша - новый невидимый
+// <video>-зонд, добавление в document.body, перемотка, canvas.toDataURL()
+// на КАЖДУЮ перерисовку чата для КАЖДОГО такого видео. Ключ - src (blobUrl),
+// он стабилен для одного и того же вложения между рендерами (см. тот же
+// довод в voice-player/mount.js:_prepared).
+// Без верхней границы этот кэш рос бы всю сессию вкладки без освобождения -
+// при активном использовании (десятки/сотни видео за долгую сессию) это
+// ощутимая утечка памяти под base64-строки постеров, которые никогда не
+// освобождались бы. См. core/lru-map.js.
+const _posterCache = createLruMap(200); // blobUrl -> dataURL
 
 // Ставит <video> постер (кадр-превью, видимый до нажатия Play) - кадром из
 // СЕРЕДИНЫ ролика (обычно куда информативнее, чем первый кадр, который у
@@ -40,10 +56,26 @@ export function setPreviewPoster(videoEl, opts){
   const src = videoEl.currentSrc || videoEl.src;
   if(!src) return;
 
-  const { probe, cleanup } = createProbe(src);
-  const capture = () => captureFrame(probe, videoEl, cleanup);
+  const cached = _posterCache.get(src);
+  if(cached){
+    videoEl.poster = cached;
+    _posterCache.touch(src); // переставляем в конец LRU-очереди
+    return;
+  }
 
-  probe.addEventListener('error', cleanup);
+  const { probe, cleanup } = createProbe(src);
+  // Оборачиваем cleanup: сохраняем в кэш то, что captureFrame успел записать
+  // в videoEl.poster (dataURL), ДО того как зонд уничтожается. Если кадр
+  // захватить не удалось (videoEl.poster остался пуст), в кэш ничего не
+  // кладём - следующий рендер честно попробует захватить ещё раз, а не
+  // навсегда застрянет с пустым превью.
+  const cleanupAndCache = () => {
+    if(videoEl.poster) _posterCache.set(src, videoEl.poster);
+    cleanup();
+  };
+  const capture = () => captureFrame(probe, videoEl, cleanupAndCache);
+
+  probe.addEventListener('error', cleanupAndCache);
   // 'canplay' (не 'loadedmetadata'!) - на loadedmetadata браузер знает только
   // размеры/длительность, но ещё не декодировал достаточно данных, чтобы
   // гарантированно отдать реальный кадр на произвольном currentTime; на части

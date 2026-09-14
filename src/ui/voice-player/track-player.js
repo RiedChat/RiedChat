@@ -28,7 +28,7 @@ export function mountTrackPlayer(host, blobUrl, tags){
           ${tags.cover ? html`<img src="${raw(tags.cover)}" alt="">` : raw(`<div class="track-avatar-fallback">
             <svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3z"/></svg>
           </div>`)}
-          <button class="voice-play track-play" type="button" aria-label="${t('voicePlayer.play')}">
+          <button class="voice-play track-play" type="button" aria-label="${t('voicePlayer.play')}" aria-pressed="false">
             <svg class="ic-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
             <svg class="ic-pause" viewBox="0 0 24 24" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
           </button>
@@ -83,7 +83,7 @@ export function mountTrackPlayer(host, blobUrl, tags){
     if(duration > 0) updateBar(audio.currentTime / duration);
     updateRows();
   });
-  wireVoiceAudio(audio, iconPlay, iconPause, {onPlay: updateRows});
+  wireVoiceAudio(audio, iconPlay, iconPause, {onPlay: updateRows, host});
   audio.addEventListener('ended', () => {
     audio.currentTime = 0; updateBar(0); updateRows();
     timeEl.textContent = '0:00';
@@ -103,9 +103,29 @@ export function mountTrackPlayer(host, blobUrl, tags){
     audio.currentTime = clamped * duration;
     updateBar(clamped);
   };
+  // setPointerCapture на самом bar (тот же приём, что и в ui/swipe-gesture.js
+  // этого проекта) вместо window.addEventListener('pointermove'/'pointerup', ...):
+  // после захвата move/up-события идут на bar независимо от того, куда
+  // палец/курсор уехал за пределы бегунка - слушать их на window не нужно.
+  // Раньше listener'ы вешались на window при КАЖДОМ mountTrackPlayer() и
+  // никогда не снимались - на длинной сессии с несколькими треками (и с
+  // учётом того, что render-messages.js перемонтирует уже показанные плееры
+  // заново при каждом новом сообщении в чате) их число росло без остановки.
   let dragging = false;
-  bar.addEventListener('pointerdown', (e) => { dragging = true; seekFromEvent(e); e.preventDefault(); });
-  window.addEventListener('pointermove', (e) => { if(dragging) seekFromEvent(e); });
-  window.addEventListener('pointerup', () => { dragging = false; });
+  bar.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    try{ bar.setPointerCapture(e.pointerId); }catch(err){ /* Safari<13 - просто без capture */ }
+    seekFromEvent(e);
+    e.preventDefault();
+  });
+  // dragging-флаг всё ещё нужен: без него любое наведение курсора мыши на
+  // bar (даже без нажатия) уже вызывало бы pointermove и таскало бы
+  // позицию воспроизведения.
+  bar.addEventListener('pointermove', (e) => { if(dragging) seekFromEvent(e); });
+  bar.addEventListener('pointerup', (e) => {
+    dragging = false;
+    try{ bar.releasePointerCapture(e.pointerId); }catch(err){ /* уже отпущен браузером */ }
+  });
+  bar.addEventListener('pointercancel', () => { dragging = false; });
 }
 

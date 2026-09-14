@@ -7,7 +7,7 @@ import { state } from '../../core/state.js';
 import { $ } from '../../core/dom-utils.js';
 import { history } from '../../net/history.js';
 import { sendDisplayedMarker } from '../../net/messaging/outgoing.js';
-import { renderRoster } from '../roster.js';
+import { patchRosterRow } from '../roster.js';
 import { t } from '../../i18n/t.js';
 
 const S = state;
@@ -64,7 +64,10 @@ export function _markChatRead(chatJid){
   });
   if(changed){
     history.saveThread(chatJid, list).catch(e => history.reportWriteError(e, t('chatView.chatHistoryLabel')));
-    renderRoster();
+    // Точечно перерисовываем только эту одну строку ростера - см.
+    // roster.js:patchRosterRow. Порядок ростера сортируется по имени, а не
+    // по времени/непрочитанным, так что замена строки на месте безопасна.
+    patchRosterRow(chatJid);
   }
   if(changed && lastMarkableId) sendDisplayedMarker(chatJid, lastMarkableId);
 }

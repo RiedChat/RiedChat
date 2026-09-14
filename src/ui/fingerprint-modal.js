@@ -7,11 +7,20 @@ import { html, setHTML } from '../core/safe-html.js';
 import { state } from '../core/state.js';
 import { $ } from '../core/dom-utils.js';
 import { omemo } from '../crypto/omemo/state.js';
+import { autoTrapModal } from '../core/modal-a11y.js';
 import { renderPendingSection } from './fingerprint-modal/pending-section.js';
 import { renderDeviceList } from './fingerprint-modal/device-list.js';
 import { t } from '../i18n/t.js';
 
 const S = state;
+
+// fp-modal (в отличие от confirm-modal/vault-modal) не Promise-based -
+// открывается прямым modal.classList.add('active') отсюда и закрывается
+// либо через wireModalDismiss (features/chat-controls.js - крестик/клик по
+// фону), либо через Escape. autoTrapModal сам следит за классом 'active' и
+// включает/выключает focus trap - вызывать его достаточно один раз при
+// загрузке модуля, а не при каждом открытии.
+autoTrapModal('fp-modal');
 
 export async function openFingerprintModal(){
   const modal = $('fp-modal');

@@ -12,9 +12,9 @@ import { state } from '../../../core/state.js';
 import { uuid } from '../../../core/uuid.js';
 import { debugLog } from '../../../core/debug-log.js';
 import { history } from '../../history.js';
-import { renderRoster } from '../../../ui/roster.js';
-import { renderMessages } from '../../../ui/chat-view/render-messages.js';
-import { bumpContactMessageCount } from '../../trusted-contacts.js';
+import { patchRosterRow } from '../../../ui/roster.js';
+import { appendMessage } from '../../../ui/chat-view/render-messages.js';
+import { bumpOutgoingMessageCount } from '../../trusted-contacts.js';
 import { encryptOrFallback } from './encrypt-or-fallback.js';
 import { appendStanzaBody } from './stanza-body.js';
 import { t } from '../../../i18n/t.js';
@@ -47,11 +47,15 @@ export async function sendMessage(toJid, body){
   S.connection.send(msg);
   S.messages[toJid] = S.messages[toJid] || [];
   S.messages[toJid].push({id: msgId, body, time: Date.now(), out:true, encrypted, read:true, status:'sent'});
+  const newIdx = S.messages[toJid].length - 1;
   history.saveThread(toJid, S.messages[toJid]).catch(e => history.reportWriteError(e, t('history.ctxChatHistory')));
-  // См. incoming.js - та же эвристика "доверенный контакт" считает сообщения
-  // в обе стороны (riedchat-security-plan.md, п.5).
-  bumpContactMessageCount(toJid);
-  if(S.activeChat === toJid) renderMessages();
-  renderRoster();
+  // Эвристика "доверенный контакт" (riedchat-security-plan.md, п.5) считает
+  // только исходящие сообщения - см. net/trusted-contacts.js, почему входящие
+  // намеренно не учитываются.
+  bumpOutgoingMessageCount(toJid);
+  // Точечно дописываем строку вместо полного renderMessages() - см.
+  // render-messages.js:appendMessage.
+  if(S.activeChat === toJid) appendMessage(newIdx);
+  patchRosterRow(toJid);
   return { sent:true, encrypted, fallbackReason };
 }

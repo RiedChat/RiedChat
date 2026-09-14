@@ -8,6 +8,21 @@ import { drawWaveform, sizeWaveformCanvas } from './waveform-draw.js';
 import { wireVoiceAudio } from './audio-lifecycle.js';
 import { computeWaveformPeaks } from './waveform-peaks.js';
 import { t } from '../../i18n/t.js';
+import { createLruMap } from '../../core/lru-map.js';
+
+// Кэш посчитанных амплитудных пиков по blobUrl - тот же аргумент, что и в
+// mount.js:_prepared: blobUrl стабилен для одного и того же вложения между
+// перерисовками, поэтому AudioContext/decodeAudioData незачем гонять заново
+// на каждый ремонт уже показанного голосового сообщения. Ограничен по
+// размеру (см. core/lru-map.js) - без границы рос бы всю сессию вкладки.
+const _peaksCache = createLruMap(200); // blobUrl -> Promise<Float32Array-like number[]>
+
+function computePeaksOnce(blobUrl, arrayBuffer){
+  if(_peaksCache.has(blobUrl)){ _peaksCache.touch(blobUrl); return _peaksCache.get(blobUrl); }
+  const p = computeWaveformPeaks(arrayBuffer);
+  _peaksCache.set(blobUrl, p);
+  return p;
+}
 
 const fmt = (s) => {
   if(!isFinite(s) || s < 0) s = 0;
@@ -20,7 +35,7 @@ const fmt = (s) => {
 export async function mountWaveformPlayer(host, blobUrl, arrayBuffer){
   setHTML(host, html`
     <div class="voice-msg">
-      <button class="voice-play" type="button" aria-label="${t('voicePlayer.play')}">
+      <button class="voice-play" type="button" aria-label="${t('voicePlayer.play')}" aria-pressed="false">
         <svg class="ic-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
         <svg class="ic-pause" viewBox="0 0 24 24" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
       </button>
@@ -60,7 +75,7 @@ export async function mountWaveformPlayer(host, blobUrl, arrayBuffer){
     timeEl.textContent = fmt(audio.currentTime);
     draw();
   });
-  wireVoiceAudio(audio, iconPlay, iconPause);
+  wireVoiceAudio(audio, iconPlay, iconPause, {host});
   audio.addEventListener('ended', () => {
     playedFrac = 0; draw();
     timeEl.textContent = fmt(duration);
@@ -78,7 +93,7 @@ export async function mountWaveformPlayer(host, blobUrl, arrayBuffer){
   });
 
   requestAnimationFrame(sizeCanvas);
-  peaks = await computeWaveformPeaks(arrayBuffer);
+  peaks = await computePeaksOnce(blobUrl, arrayBuffer);
   sizeCanvas();
 }
 

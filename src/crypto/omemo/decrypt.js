@@ -81,6 +81,15 @@ Object.assign(omemo, {
       // было скрыто из списка отпечатков из-за смены ключа, самое время
       // вернуть его обратно, чтобы можно было сверить и отметить проверенным.
       await this.store.clearPendingReverify(address.toString());
+      // Только что израсходован один одноразовый prekey (libsignal сам удалил
+      // его из хранилища внутри decryptPreKeyWhisperMessage выше) - не ждём
+      // следующего login/init(), проверяем остаток сразу и, если он упал
+      // ниже порога, догоняем и перепубликовываем bundle (см.
+      // omemo/state.js:replenishPreKeysIfNeeded, почему это важно - иначе
+      // запас одноразовых prekeys можно исчерпать целенаправленно).
+      this.replenishPreKeysIfNeeded()
+        .then(replenished => { if(replenished) return this._publishBundle(); })
+        .catch(e => debugLog('OMEMO: пополнение prekeys после decrypt упало: ' + (e && e.message ? e.message : e)));
     }
 
     const keyTag = new Uint8Array(keyTagBuf);

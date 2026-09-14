@@ -13,7 +13,7 @@ import { state } from '../../../core/state.js';
 import { uuid } from '../../../core/uuid.js';
 import { debugLog } from '../../../core/debug-log.js';
 import { history } from '../../history.js';
-import { renderMessages } from '../../../ui/chat-view/render-messages.js';
+import { patchMessageBody } from '../../../ui/chat-view/render-messages.js';
 import { toast } from '../../../core/dom-utils.js';
 import { t } from '../../../i18n/t.js';
 import { encryptOrFallback } from './encrypt-or-fallback.js';
@@ -27,11 +27,12 @@ export async function editMessage(toJid, targetId, newBody){
   // Ищем именно среди своих исходящих - редактировать чужое сообщение
   // нельзя, и UI (features/message-edit.js) до этого места такое не пускает,
   // но проверяем ещё раз здесь, а не полагаемся только на вызывающий код.
-  const original = list.find(m => m && m.out && m.id === targetId);
-  if(!original){
+  const originalIdx = list.findIndex(m => m && m.out && m.id === targetId);
+  if(originalIdx === -1){
     toast(t('messaging.editNotFound'));
     return { sent:false };
   }
+  const original = list[originalIdx];
 
   const { blocked, encryptedEl, fallbackReason } = await encryptOrFallback(toJid, newBody, t('messaging.actionCorrection'));
   if(blocked) return { sent:false };
@@ -48,7 +49,7 @@ export async function editMessage(toJid, targetId, newBody){
   original.encrypted = encrypted;
   original.edited = true;
   history.saveThread(toJid, list).catch(e => history.reportWriteError(e, t('history.ctxChatHistory')));
-  if(S.activeChat === toJid) renderMessages();
+  if(S.activeChat === toJid) patchMessageBody(originalIdx);
   notifyEncryptionFallback(fallbackReason);
   return { sent:true };
 }

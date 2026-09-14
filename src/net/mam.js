@@ -128,7 +128,11 @@ export const mam = {
 
     for(const peer of touchedPeers){
       S.messages[peer].sort((a,b) => a.time - b.time);
-      try{ await history.saveThread(peer, S.messages[peer]); }
+      // saveThreadNow: одна запись на весь догруженный батч этого peer, а
+      // не по одному вызову на сообщение - дебаунсить (net/history.js)
+      // нечего, а лишняя пауза перед setMeta('mamLastId', ...) ниже
+      // (watermark синхронизации) только отодвигала бы его без пользы.
+      try{ await history.saveThreadNow(peer, S.messages[peer]); }
       catch(e){ history.reportWriteError(e, t('history.ctxImportedMam')); }
     }
     if(newestSeenId && newestSeenId !== lastId){

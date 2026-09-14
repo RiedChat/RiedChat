@@ -11,15 +11,20 @@ import {
   putMediaEntry as putMediaEntryShared,
   evictMediaCache as evictMediaCacheShared,
   clearMediaCache as clearMediaCacheShared,
+  hasMediaEntry as hasMediaEntryShared,
 } from '../media-cache-shared.js';
 
-export function getMediaEntry(db, url){
-  if(!db) return Promise.resolve(null);
-  return getMediaEntryShared(db, url);
+export function hasMediaEntry(db, url){
+  if(!db) return Promise.resolve(false);
+  return hasMediaEntryShared(db, url);
 }
-export function putMediaEntry(db, url, blob, kind){
+export function getMediaEntry(db, url, key){
+  if(!db) return Promise.resolve(null);
+  return getMediaEntryShared(db, url, key);
+}
+export function putMediaEntry(db, url, blob, kind, key){
   if(!db) return Promise.resolve();
-  return putMediaEntryShared(db, url, blob, kind);
+  return putMediaEntryShared(db, url, blob, kind, key);
 }
 export function evictMediaCache(db){
   if(!db) return Promise.resolve();

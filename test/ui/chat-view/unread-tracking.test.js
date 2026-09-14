@@ -6,14 +6,14 @@ vi.mock('../../../src/net/history.js', () => ({
   history: { saveThread: vi.fn().mockResolvedValue(undefined), reportWriteError: vi.fn() },
 }));
 vi.mock('../../../src/net/messaging/outgoing.js', () => ({ sendDisplayedMarker: vi.fn() }));
-vi.mock('../../../src/ui/roster.js', () => ({ renderRoster: vi.fn() }));
+vi.mock('../../../src/ui/roster.js', () => ({ patchRosterRow: vi.fn() }));
 vi.mock('../../../src/i18n/t.js', () => ({ t: (key) => key }));
 
 import { _markChatRead } from '../../../src/ui/chat-view/unread-tracking.js';
 import { state } from '../../../src/core/state.js';
 import { history } from '../../../src/net/history.js';
 import { sendDisplayedMarker } from '../../../src/net/messaging/outgoing.js';
-import { renderRoster } from '../../../src/ui/roster.js';
+import { patchRosterRow } from '../../../src/ui/roster.js';
 
 describe('_markChatRead', () => {
   beforeEach(() => {
@@ -51,14 +51,14 @@ describe('_markChatRead', () => {
     state.messages['alice@example.com'] = [{ id: '1', out: false, read: true }];
     _markChatRead('alice@example.com');
     expect(history.saveThread).not.toHaveBeenCalled();
-    expect(renderRoster).not.toHaveBeenCalled();
+    expect(patchRosterRow).not.toHaveBeenCalled();
   });
 
   it('были реальные изменения - сохраняет тред и обновляет roster', () => {
     state.messages['alice@example.com'] = [{ id: '1', out: false, read: false }];
     _markChatRead('alice@example.com');
     expect(history.saveThread).toHaveBeenCalledWith('alice@example.com', state.messages['alice@example.com']);
-    expect(renderRoster).toHaveBeenCalled();
+    expect(patchRosterRow).toHaveBeenCalledWith('alice@example.com');
   });
 
   it('шлёт <displayed> на ПОСЛЕДНЕЕ markable входящее сообщение (не на первое из нескольких)', () => {

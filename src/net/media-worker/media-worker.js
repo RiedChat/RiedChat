@@ -30,6 +30,15 @@ import { fetchAndDecrypt } from './fetch-decrypt.js';
 // ---- IndexedDB: та же база/версия/схема, что и net/history/db.js ----
 let dbPromise = null;
 let openedDbName = null;
+// CryptoKey шифрования медиа-кэша, полученный один раз от главного потока
+// (см. net/media/worker-client.js:sendCacheKeyToWorker) - воркер сам не
+// может обратиться к vault/UI за passphrase/биометрией. До получения ключа
+// 'decrypt'/'store' сообщения (которые трогают mediaCache) ставятся в
+// очередь и обрабатываются, как только ключ придёт - тот же гоночный
+// сценарий, что уже решён для onmessage ниже, только на один шаг раньше.
+let cacheKey = null;
+let cacheKeyResolve;
+const cacheKeyReady = new Promise(resolve => { cacheKeyResolve = resolve; });
 
 function openDb(dbName){
   if(dbPromise && openedDbName === dbName) return dbPromise;
@@ -56,10 +65,17 @@ self.onmessage = async (ev) => {
   const msg = ev.data || {};
   const { type, reqId, dbName } = msg;
 
+  if(type === 'set-cache-key'){
+    cacheKey = msg.key;
+    cacheKeyResolve(cacheKey);
+    return;
+  }
+
   try{
     if(type === 'decrypt'){
       const db = await openDb(dbName);
-      const cached = await getMediaEntry(db, msg.url);
+      const key = cacheKey || await cacheKeyReady;
+      const cached = await getMediaEntry(db, msg.url, key);
       if(cached && cached.blob){
         self.postMessage({ type:'result', reqId, ok:true, blob: cached.blob, kind: cached.kind, fromCache: true });
         return;
@@ -72,7 +88,7 @@ self.onmessage = async (ev) => {
       // задерживает показ файла пользователю, и, поскольку мы в воркере,
       // никак не сказывается на отправке сообщений в главном потоке.
       try{
-        await putMediaEntry(db, msg.url, blob, kind);
+        await putMediaEntry(db, msg.url, blob, kind, key);
         await evictMediaCache(db);
       }catch(e){
         self.postMessage({ type:'cache-write-error', reqId, error: (e && e.message) || String(e) });
@@ -85,7 +101,8 @@ self.onmessage = async (ev) => {
       // главный поток уже показал их пользователю локально, здесь только
       // фоново сохраняем в постоянный кэш.
       const db = await openDb(dbName);
-      await putMediaEntry(db, msg.url, msg.blob, msg.kind);
+      const key = cacheKey || await cacheKeyReady;
+      await putMediaEntry(db, msg.url, msg.blob, msg.kind, key);
       await evictMediaCache(db);
       self.postMessage({ type:'stored', reqId, ok:true });
       return;

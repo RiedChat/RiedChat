@@ -7,12 +7,12 @@ vi.mock('../../../../src/net/history.js', () => ({
   history: { saveThread: vi.fn().mockResolvedValue(undefined), reportWriteError: vi.fn() },
 }));
 vi.mock('../../../../src/i18n/t.js', () => ({ t: (key) => key }));
-vi.mock('../../../../src/ui/chat-view/render-messages.js', () => ({ renderMessages: vi.fn() }));
+vi.mock('../../../../src/ui/chat-view/render-messages.js', () => ({ patchMessageTicks: vi.fn() }));
 
 import { handleDisplayedMarker } from '../../../../src/net/messaging/incoming/displayed-marker.js';
 import { state } from '../../../../src/core/state.js';
 import { history } from '../../../../src/net/history.js';
-import { renderMessages } from '../../../../src/ui/chat-view/render-messages.js';
+import { patchMessageTicks } from '../../../../src/ui/chat-view/render-messages.js';
 
 describe('handleDisplayedMarker', () => {
   beforeEach(() => {
@@ -63,11 +63,11 @@ describe('handleDisplayedMarker', () => {
     expect(state.messages['alice@example.com'][1].status).toBe('read');
   });
 
-  it('все сообщения в диапазоне уже read - не пишет в историю и не рендерит повторно', () => {
+  it('все сообщения в диапазоне уже read - не пишет в историю и не патчит галочки повторно', () => {
     state.messages['alice@example.com'] = [{ id: 'msg-1', out: true, status: 'read' }];
     handleDisplayedMarker('alice@example.com', 'msg-1');
     expect(history.saveThread).not.toHaveBeenCalled();
-    expect(renderMessages).not.toHaveBeenCalled();
+    expect(patchMessageTicks).not.toHaveBeenCalled();
   });
 
   it('были реальные изменения - сохраняет весь тред в историю', () => {
@@ -76,17 +76,21 @@ describe('handleDisplayedMarker', () => {
     expect(history.saveThread).toHaveBeenCalledWith('alice@example.com', state.messages['alice@example.com']);
   });
 
-  it('чат сейчас открыт (activeChat === fromBare) - вызывает renderMessages', () => {
-    state.messages['alice@example.com'] = [{ id: 'msg-1', out: true, status: 'sent' }];
+  it('чат сейчас открыт (activeChat === fromBare) - точечно патчит галочки затронутых сообщений', () => {
+    state.messages['alice@example.com'] = [
+      { id: 'msg-1', out: true, status: 'sent' },
+      { id: 'msg-2', out: true, status: 'sent' },
+    ];
     state.activeChat = 'alice@example.com';
-    handleDisplayedMarker('alice@example.com', 'msg-1');
-    expect(renderMessages).toHaveBeenCalled();
+    handleDisplayedMarker('alice@example.com', 'msg-2');
+    expect(patchMessageTicks).toHaveBeenCalledWith(0);
+    expect(patchMessageTicks).toHaveBeenCalledWith(1);
   });
 
-  it('чат другой - renderMessages не вызывается', () => {
+  it('чат другой - patchMessageTicks не вызывается', () => {
     state.messages['alice@example.com'] = [{ id: 'msg-1', out: true, status: 'sent' }];
     state.activeChat = 'bob@example.com';
     handleDisplayedMarker('alice@example.com', 'msg-1');
-    expect(renderMessages).not.toHaveBeenCalled();
+    expect(patchMessageTicks).not.toHaveBeenCalled();
   });
 });

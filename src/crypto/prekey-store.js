@@ -20,6 +20,25 @@ export class PreKeyStore{
   async removePreKey(keyId){
     await this.idb.del(this.ns + 'preKey:' + keyId);
   }
+  // Сколько одноразовых prekeys ещё не израсходовано - нужно
+  // omemo/state.js:replenishPreKeysIfNeeded, чтобы решить, пора ли
+  // догенерировать новые.
+  async countPreKeys(){
+    const keys = await this.idb.keys(this.ns + 'preKey:');
+    return keys.length;
+  }
+  // Максимальный уже использованный (в т.ч. когда-то опубликованный, но с
+  // тех пор израсходованный и удалённый) id prekey - нужен как фолбэк для
+  // выбора id следующей пачки, если ещё нет meta-счётчика nextPreKeyId
+  // (например, аккаунт создан до появления пополнения prekeys). Берём max
+  // среди ЕЩЁ ХРАНЯЩИХСЯ ключей - этого достаточно, чтобы не переиспользовать
+  // id ключа, который прямо сейчас может быть опубликован и не использован.
+  async maxPreKeyId(){
+    const prefix = this.ns + 'preKey:';
+    const keys = await this.idb.keys(prefix);
+    if(!keys.length) return 0;
+    return Math.max(...keys.map(k => parseInt(k.slice(prefix.length), 10)));
+  }
 
   // ---- signed prekey ----
   async loadSignedPreKey(keyId){

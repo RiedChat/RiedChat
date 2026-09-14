@@ -8,9 +8,8 @@ import { debugLog } from '../../../core/debug-log.js';
 import { history } from '../../history.js';
 import { parseMessageBody } from '../../message-body-parser.js';
 import { sendDisplayedMarker } from '../outgoing.js';
-import { renderRoster } from '../../../ui/roster.js';
-import { renderMessages } from '../../../ui/chat-view/render-messages.js';
-import { bumpContactMessageCount } from '../../trusted-contacts.js';
+import { patchRosterRow } from '../../../ui/roster.js';
+import { appendMessage } from '../../../ui/chat-view/render-messages.js';
 import { toast, nickOf } from '../../../core/dom-utils.js';
 import { t } from '../../../i18n/t.js';
 
@@ -67,13 +66,20 @@ export async function handleIncomingMessage(stanza, bare, type){
   // а не просто маленькую иконку 🔓 (см. riedchat-security-plan.md, п.2).
   const downgraded = !wasEncrypted && omemo.chatSupport[bare] === true;
   S.messages[bare].push({id: incomingId, body, time: (msgTime || Date.now()), out:false, encrypted: wasEncrypted, downgraded, read: isActiveChat, markable: wantsMarker});
+  const newIdx = S.messages[bare].length - 1;
   history.saveThread(bare, S.messages[bare]).catch(e => history.reportWriteError(e, t('history.ctxChatHistory')));
-  // Накопление истории переписки - часть эвристики "доверенный контакт" для
-  // автозагрузки картинок (riedchat-security-plan.md, п.5, см. trusted-contacts.js).
-  bumpContactMessageCount(bare);
+  // Входящие сообщения намеренно НЕ учитываются в эвристике "доверенный
+  // контакт" (riedchat-security-plan.md, п.5) - иначе спамер сам набирает
+  // себе доверие, просто прислав TRUST_MESSAGE_THRESHOLD сообщений подряд.
+  // Счётчик растёт только от исходящих, см. net/messaging/outgoing/send.js
+  // и комментарий в net/trusted-contacts.js.
 
   if(isActiveChat){
-    renderMessages();
+    // Точечно дописываем одну строку в конец списка, а не перерисовываем
+    // весь чат целиком - см. render-messages.js:appendMessage и
+    // riedchat-perf-notes.md, п.1 (полный рендер на каждое входящее
+    // сообщение пересоздавал все уже показанные медиа-пузыри чата).
+    appendMessage(newIdx);
     // Сообщение пришло, пока чат уже открыт - пользователь видит его сразу
     // (read:true выше), но само это событие в S.messages не "меняет" read
     // (оно и так true при пуше), поэтому _markChatRead() тут ничего не
@@ -82,6 +88,10 @@ export async function handleIncomingMessage(stanza, bare, type){
     // сообщения, пока мы не выйдем из чата и не откроем его заново.
     if(wantsMarker) sendDisplayedMarker(bare, incomingId);
   }
-  renderRoster();
+  // Точечно обновляем только строку этого контакта (превью последнего
+  // сообщения/непрочитанные) - см. roster.js:patchRosterRow. Новый
+  // (ранее не показанный) контакт сам откатится на полный renderRoster()
+  // внутри patchRosterRow, если строки ещё нет в DOM.
+  patchRosterRow(bare);
   return true;
 }

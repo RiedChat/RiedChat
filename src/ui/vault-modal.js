@@ -3,6 +3,7 @@
 // когда ни android-native (AndroidKeyStore), ни WebAuthn PRF недоступны
 // (см. vault.ensureSetup/unlock в crypto/vault.js).
 import { $ } from '../core/dom-utils.js';
+import { trapFocus } from '../core/modal-a11y.js';
 import { t } from '../i18n/t.js';
 
 // isSetup=true - первичная настройка (просим придумать фразу),
@@ -11,6 +12,7 @@ import { t } from '../i18n/t.js';
 export function promptVaultPassphrase(isSetup){
   return new Promise(resolve => {
     const modal = $('vault-modal');
+    const box = modal.querySelector('.modal-box');
     const input = $('vault-passphrase');
     const err = $('vault-error');
     $('vault-title').textContent = isSetup ? t('vault.setupTitle') : t('vault.unlockTitle');
@@ -18,7 +20,10 @@ export function promptVaultPassphrase(isSetup){
     err.style.display = 'none';
     input.value = '';
     modal.classList.add('active');
-    setTimeout(() => input.focus(), 0);
+    // Начальный фокус теперь ставит trapFocus() ниже (первый фокусируемый
+    // элемент внутри .modal-box - это как раз input, т.к. в разметке он
+    // идёт раньше кнопок Отмена/Продолжить) - отдельный setTimeout(focus)
+    // больше не нужен.
 
     const cleanup = (result) => {
       modal.classList.remove('active');
@@ -26,6 +31,7 @@ export function promptVaultPassphrase(isSetup){
       cancelBtn.removeEventListener('click', onCancel);
       modal.removeEventListener('click', onOverlay);
       input.removeEventListener('keydown', onKeydown);
+      untrap();
       resolve(result);
     };
     const onOk = () => {
@@ -41,6 +47,8 @@ export function promptVaultPassphrase(isSetup){
     cancelBtn.addEventListener('click', onCancel);
     modal.addEventListener('click', onOverlay);
     input.addEventListener('keydown', onKeydown);
+    // Escape приравнивается к отмене - тот же исход, что и клик по фону/Отмена.
+    const untrap = trapFocus(box, onCancel);
   });
 }
 

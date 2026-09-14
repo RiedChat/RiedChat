@@ -91,7 +91,7 @@ function _onAnswer(fromJid, bare, callId, payload){
 
 function _onCandidate(fromJid, bare, callId, payload){
   const call = S.call;
-  if(!call || call.id !== callId) return;
+  if(!call || call.id !== callId || call.bareJid !== bare) return;
   if(call.pc && call.pc.remoteDescription && call.pc.remoteDescription.type){
     call.pc.addIceCandidate(new RTCIceCandidate(payload)).catch(e => console.warn('_onCandidate: addIceCandidate failed', e));
   } else {

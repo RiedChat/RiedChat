@@ -41,6 +41,16 @@ function getWorker(){
   return worker;
 }
 
+// Вызывается из net/history.js:init() после того, как AES-GCM data-key
+// истории/медиа-кэша получен из vault'а (crypto/omemo-vault.js:
+// getHistoryStorageKey). Воркер сам к vault/UI обратиться не может (нет
+// доступа к DOM для BiometricPrompt/passphrase-модалки), поэтому получает
+// готовый CryptoKey один раз через postMessage (CryptoKey - структурно
+// клонируемый тип, ключ при этом не покидает движок как "сырые" байты).
+export function sendCacheKeyToWorker(key){
+  getWorker().postMessage({ type: 'set-cache-key', key });
+}
+
 function nextReqId(){
   return 'r' + (++reqCounter);
 }

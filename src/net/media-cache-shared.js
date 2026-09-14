@@ -4,37 +4,64 @@
 // схема см. net/history/db.js). Используется из двух разных контекстов
 // исполнения:
 //   - главный поток вкладки - через net/history/media-cache.js
-//   - net/media-worker/media-worker.js - отдельный module Worker
-// Обычный ES-модуль: в главном потоке импортируется как часть общего
-// бандла, в воркере - как отдельный чанк (свой экземпляр модуля,
-// собственная память, общих переменных между потоками нет и не нужно).
+//   - net/media-worker/media-worker.js - отдельный module Worker, свой
+//     экземпляр модуля, собственная память, общих переменных между потоками
+//     нет и не нужно.
+//
+// `key` - AES-GCM CryptoKey из net/media-cache-crypto.js (в главном потоке -
+// crypto/omemo-vault.js:getHistoryStorageKey, в воркере - полученный один
+// раз через postMessage, см. net/media/worker-client.js).
+import { encryptCacheEntry, decryptCacheEntry } from './media-cache-crypto.js';
 
 export const MEDIA_CACHE_MAX_BYTES = 300 * 1024 * 1024; // 300 МБ на аккаунт
 
-// Запись: {blob, kind, ts} - ts обновляется при каждом чтении, чтобы
-// вытеснение (evictMediaCache) убирало действительно самое давнее по
-// последнему обращению, а не самое давно добавленное.
-export function getMediaEntry(db, url){
+// Запись на диске: {iv, data (зашифрованное содержимое), kind, size, ts} -
+// ts обновляется при каждом чтении, чтобы вытеснение (evictMediaCache)
+// убирало действительно самое давнее по последнему обращению, а не самое
+// давно добавленное. kind/size намеренно НЕ шифруются - они нужны для
+// LRU-вытеснения и UI-заглушек без похода к crypto.subtle на каждую запись
+// в списке, и сами по себе не являются секретом уровня содержимого файла.
+export function getMediaEntry(db, url, key){
   return new Promise((resolve, reject) => {
     const tx = db.transaction('mediaCache', 'readwrite');
     const store = tx.objectStore('mediaCache');
     const req = store.get(url);
     req.onsuccess = () => {
       const rec = req.result;
-      if(rec){
-        rec.ts = Date.now(); // «прикоснулись» - двигаем в конец очереди на вытеснение
-        store.put(rec, url);
-      }
-      resolve(rec || null);
+      if(!rec){ resolve(null); return; }
+      rec.ts = Date.now(); // «прикоснулись» - двигаем в конец очереди на вытеснение
+      store.put(rec, url);
+      // Legacy-запись до введения шифрования кэша - хранила blob открытым
+      // текстом напрямую под ключом 'blob'. Отдаём как есть; следующий
+      // putMediaEntry для этого же url (обычный путь обновления кэша)
+      // перезапишет её уже в зашифрованном виде.
+      if(rec.blob){ resolve({ blob: rec.blob, kind: rec.kind }); return; }
+      decryptCacheEntry(key, rec)
+        .then(blob => resolve({ blob, kind: rec.kind }))
+        .catch(reject);
     };
     req.onerror = () => reject(req.error);
   });
 }
 
-export function putMediaEntry(db, url, blob, kind){
+// Только факт наличия записи, без чтения/расшифровки содержимого и без
+// сдвига ts (это не "обращение" к файлу, а служебная проверка) - см.
+// ui/chat-view/media-loader.js, которому нужно только решить, показывать ли
+// плашку "нажмите, чтобы загрузить" или сразу дозагрузить уже скачанное.
+export function hasMediaEntry(db, url){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('mediaCache', 'readonly');
+    const req = tx.objectStore('mediaCache').getKey(url);
+    req.onsuccess = () => resolve(req.result !== undefined);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function putMediaEntry(db, url, blob, kind, key){
+  const enc = await encryptCacheEntry(key, blob);
   return new Promise((resolve, reject) => {
     const tx = db.transaction('mediaCache', 'readwrite');
-    tx.objectStore('mediaCache').put({blob, kind, size: blob.size, ts: Date.now()}, url);
+    tx.objectStore('mediaCache').put({ iv: enc.iv, data: enc.data, kind, size: blob.size, ts: Date.now() }, url);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -42,6 +69,7 @@ export function putMediaEntry(db, url, blob, kind){
 
 // Вытесняет самые давно использованные записи, пока суммарный размер
 // не уложится в лимит. Вызывается в фоне после каждой записи - не блокирует рендер.
+// Работает только с метаданными (size/ts), расшифровка не нужна.
 export function evictMediaCache(db){
   return new Promise((resolve, reject) => {
     const tx = db.transaction('mediaCache', 'readwrite');

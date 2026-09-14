@@ -42,50 +42,81 @@ function previewText(lastMsg){
   return t('roster.fileFallback');
 }
 
-export function renderRoster(){
-  const el = $('roster');
-  const list = Object.keys(S.roster).sort((a,b) => {
+function sortedRosterJids(){
+  return Object.keys(S.roster).sort((a,b) => {
     const an = S.roster[a].nick || S.roster[a].name || a;
     const bn = S.roster[b].nick || S.roster[b].name || b;
     return an.localeCompare(bn);
   });
+}
+
+// Строит и возвращает готовую строку ростера для одного jid (без вставки в
+// DOM) - общая часть для полного renderRoster() и точечного patchRosterRow().
+function buildRosterRow(jid){
+  const c = S.roster[jid];
+  const row = document.createElement('div');
+  row.className = 'roster-item' + (S.activeChat === jid ? ' active' : '');
+  row.dataset.jid = jid;
+  const msgs = S.messages[jid] || [];
+  const lastMsg = msgs.length ? msgs[msgs.length-1] : null;
+  // Замок в списке чатов показываем только когда OMEMO для контакта точно
+  // подтверждён (chatSupport[jid] === true) - при false (точно недоступен)
+  // и при undefined (ещё не проверяли disco#info) иконки нет одинаково,
+  // это не разные состояния для этой мелкой метки в ростере (в отличие от
+  // полноценного бейджа в шапке чата, см. chat-head.js:updateOmemoBadge).
+  const lockGlyph = omemo.chatSupport[jid] === true ? ICON_LOCK_CLOSED : '';
+  const sub = lastMsg ? (lastMsg.out ? t('roster.youPrefix') : '') + previewText(lastMsg) : nickOf(jid);
+  const displayName = c.nick || c.name || nickOf(jid);
+  // c.avatarUrl - data:-URL, собранный из vCard СОБЕСЕДНИКА (см.
+  // net/vcard.js). Источник уже валидирует MIME/base64, но экранируем
+  // ещё раз и здесь (defense in depth: html делает это автоматически
+  // для любой подстановки, кроме явно помеченной raw).
+  const avatarInner = c.avatarUrl
+    ? html`<img src="${c.avatarUrl}" alt="">`
+    : raw(escapeHtml(initials(jid)));
+  // Непрочитанные - входящие сообщения с read===false (см. net/messaging/incoming.js,
+  // net/mam.js). Старые записи без поля read считаются прочитанными.
+  const unreadCount = msgs.reduce((n, m) => n + ((!m.out && m.read === false) ? 1 : 0), 0);
+  const lockBadge = lockGlyph ? raw(' <span title="' + escapeHtml(t('roster.omemoAvailableTitle')) + '">' + lockGlyph + '</span>') : '';
+  const unreadBadge = unreadCount
+    ? html`<div class="roster-unread">${unreadCount > 99 ? '99+' : String(unreadCount)}</div>`
+    : '';
+  setHTML(row, html`
+    <div class="avatar">${avatarInner}</div>
+    <div class="presence-dot ${raw(c.presence === 'online' ? 'online' : '')}"></div>
+    <div class="roster-meta">
+      <div class="roster-name">${displayName}${lockBadge}</div>
+      <div class="roster-sub">${sub}</div>
+    </div>
+    ${unreadBadge}`);
+  row.addEventListener('click', () => openChat(jid));
+  return row;
+}
+
+export function renderRoster(){
+  const el = $('roster');
+  const list = sortedRosterJids();
   if(list.length === 0){
     setHTML(el, html`<div class="roster-empty">${raw(t('sidebar.rosterEmptyHtml'))}</div>`);
     return;
   }
   el.innerHTML = '';
-  list.forEach(jid => {
-    const c = S.roster[jid];
-    const row = document.createElement('div');
-    row.className = 'roster-item' + (S.activeChat === jid ? ' active' : '');
-    const msgs = S.messages[jid] || [];
-    const lastMsg = msgs.length ? msgs[msgs.length-1] : null;
-    const lockGlyph = omemo.chatSupport[jid] ? ICON_LOCK_CLOSED : (omemo.chatSupport[jid] === false ? '' : '');
-    const sub = lastMsg ? (lastMsg.out ? t('roster.youPrefix') : '') + previewText(lastMsg) : nickOf(jid);
-    const displayName = c.nick || c.name || nickOf(jid);
-    // c.avatarUrl - data:-URL, собранный из vCard СОБЕСЕДНИКА (см.
-    // net/vcard.js). Источник уже валидирует MIME/base64, но экранируем
-    // ещё раз и здесь (defense in depth: html делает это автоматически
-    // для любой подстановки, кроме явно помеченной raw).
-    const avatarInner = c.avatarUrl
-      ? html`<img src="${c.avatarUrl}" alt="">`
-      : raw(escapeHtml(initials(jid)));
-    // Непрочитанные - входящие сообщения с read===false (см. net/messaging/incoming.js,
-    // net/mam.js). Старые записи без поля read считаются прочитанными.
-    const unreadCount = msgs.reduce((n, m) => n + ((!m.out && m.read === false) ? 1 : 0), 0);
-    const lockBadge = lockGlyph ? raw(' <span title="' + escapeHtml(t('roster.omemoAvailableTitle')) + '">' + lockGlyph + '</span>') : '';
-    const unreadBadge = unreadCount
-      ? html`<div class="roster-unread">${unreadCount > 99 ? '99+' : String(unreadCount)}</div>`
-      : '';
-    setHTML(row, html`
-      <div class="avatar">${avatarInner}</div>
-      <div class="presence-dot ${raw(c.presence === 'online' ? 'online' : '')}"></div>
-      <div class="roster-meta">
-        <div class="roster-name">${displayName}${lockBadge}</div>
-        <div class="roster-sub">${sub}</div>
-      </div>
-      ${unreadBadge}`);
-    row.addEventListener('click', () => openChat(jid));
-    el.appendChild(row);
-  });
+  list.forEach(jid => el.appendChild(buildRosterRow(jid)));
+}
+
+// Точечно перерисовывает ОДНУ строку ростера (аватар/превью-текст/бейдж
+// непрочитанных/замок) вместо полной пересборки всего сайдбара - раньше
+// прочтение одного чата (unread-tracking.js:_markChatRead) или приход
+// одного сообщения дёргали renderRoster(), который делает el.innerHTML=''
+// и пересоздаёт ВСЕ строки контактов, хотя реально меняется содержимое
+// только одной. Порядок строк зависит только от отображаемого имени
+// (см. sortedRosterJids), а не от времени последнего сообщения/непрочитанных -
+// значит замена одной строки на месте никогда не портит сортировку.
+// Если строки ещё нет в DOM (новый контакт, ростер ещё пуст и т.п.) -
+// откатываемся на полный renderRoster().
+export function patchRosterRow(jid){
+  const el = $('roster');
+  const existing = el.querySelector('.roster-item[data-jid="' + CSS.escape(jid) + '"]');
+  if(!existing){ renderRoster(); return; }
+  existing.replaceWith(buildRosterRow(jid));
 }

@@ -28,6 +28,9 @@ import { debugLog } from '../../core/debug-log.js';
 import { t } from '../../i18n/t.js';
 
 const PREKEY_COUNT = 100;
+// Ниже этого остатка одноразовых prekeys - пора догенерировать новые (см.
+// replenishPreKeysIfNeeded ниже).
+const PREKEY_REFILL_THRESHOLD = 20;
 
 export const omemo = {
   enabled: true,        // глобальный тумблер - можно временно выключить и слать в открытую
@@ -78,6 +81,12 @@ export const omemo = {
         await this.store.setLocalRegistrationId(regId);
         await this.store.setDeviceId(deviceId);
         await this._generatePreKeys(1, PREKEY_COUNT);
+        // Продолжающийся счётчик id для будущих пополнений (см.
+        // replenishPreKeysIfNeeded) - следующая догенерация должна начинаться
+        // с PREKEY_COUNT+1, а не снова с 1, иначе новый ключ переиспользовал
+        // бы id уже когда-то опубликованного (и потенциально ещё не
+        // израсходованного) prekey.
+        await this.store.setMeta('nextPreKeyId', PREKEY_COUNT + 1);
         await this._generateSignedPreKey(idKeyPair, 1);
       }
 
@@ -92,6 +101,20 @@ export const omemo = {
       this.ready = false;
       return;
     }
+
+    // Одноразовые prekeys - исчерпаемый ресурс: каждая новая X3DH-сессия,
+    // которую с нами устанавливает собеседник, тратит один ключ (libsignal
+    // сам удаляет его из хранилища - см. removePreKey в crypto/prekey-store.js
+    // и decrypt.js), а пополнения раньше не было вообще. После PREKEY_COUNT
+    // входящих key-exchange'ей бандл на сервере оставался бы с пустым
+    // <prekeys/>, и НИКТО новый (новый контакт, новое устройство контакта)
+    // больше не смог бы инициировать с нами сессию - деградация X3DH вплоть
+    // до целевого DoS (достаточно самому наинициировать с жертвой
+    // PREKEY_COUNT сессий, например открыв и закрыв чат с разных подставных
+    // JID). Проверяем остаток при каждой инициализации (плюс сразу после
+    // расхода ключа - см. decrypt.js) и при необходимости догоняем до
+    // PREKEY_COUNT, публикуя bundle заново.
+    await this.replenishPreKeysIfNeeded();
 
     try{
       await this._publishDeviceList();
@@ -116,5 +139,23 @@ export const omemo = {
     await this.store.setMeta('signedPreKeyId', spk.keyId);
     await this.store.setMeta('signedPreKeySignature', B.b64FromBuf(spk.signature));
     return spk;
+  },
+
+  // Догоняет запас одноразовых prekeys до PREKEY_COUNT, если он упал ниже
+  // PREKEY_REFILL_THRESHOLD. Сам bundle НЕ перепубликовывает - это решает
+  // вызывающий код: init() и так публикует bundle следующим шагом, а
+  // decrypt.js (расход ключа посреди сессии) публикует явно сам, только
+  // если реально было что публиковать (возвращаем true/false).
+  async replenishPreKeysIfNeeded(){
+    if(!this.store) return false;
+    const remaining = await this.store.countPreKeys();
+    if(remaining >= PREKEY_REFILL_THRESHOLD) return false;
+    const storedNextId = await this.store.getMeta('nextPreKeyId');
+    const startId = storedNextId || ((await this.store.maxPreKeyId()) + 1);
+    const toGenerate = PREKEY_COUNT - remaining;
+    await this._generatePreKeys(startId, toGenerate);
+    await this.store.setMeta('nextPreKeyId', startId + toGenerate);
+    debugLog('OMEMO: пополнил one-time prekeys (было ' + remaining + ', догенерировал ' + toGenerate + ', id ' + startId + '..' + (startId + toGenerate - 1) + ')');
+    return true;
   },
 };

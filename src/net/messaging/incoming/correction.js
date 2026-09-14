@@ -4,7 +4,7 @@ import { state } from '../../../core/state.js';
 import { history } from '../../history.js';
 import { t } from '../../../i18n/t.js';
 import { parseMessageBody } from '../../message-body-parser.js';
-import { renderMessages } from '../../../ui/chat-view/render-messages.js';
+import { patchMessageBody } from '../../../ui/chat-view/render-messages.js';
 
 const S = state;
 
@@ -39,11 +39,15 @@ export async function handleCorrection(stanza, bare){
   // исходящему сообщению (out:true), см. net/messaging/outgoing/edit.js,
   // где та же проверка сделана на исходящем пути.
   const expectedOut = bare === S.myBareJid;
-  const target = list.find(m => m && m.id === targetId && !!m.out === expectedOut);
-  if(!target) return; // сообщение ещё не попало в локальную историю или чужое - тихо игнорируем
+  const targetIdx = list.findIndex(m => m && m.id === targetId && !!m.out === expectedOut);
+  if(targetIdx === -1) return; // сообщение ещё не попало в локальную историю или чужое - тихо игнорируем
+  const target = list[targetIdx];
   target.body = parsed.body;
   target.encrypted = parsed.encrypted;
   target.edited = true;
   history.saveThread(bare, list).catch(e => history.reportWriteError(e, t('history.ctxChatHistory')));
-  if(S.activeChat === bare) renderMessages();
+  // Точечно перерисовываем только этот один пузырь - см. комментарий у
+  // handleDisplayedMarker в displayed-marker.js о том, почему полный
+  // renderMessages() тут был лишним и дорогим.
+  if(S.activeChat === bare) patchMessageBody(targetIdx);
 }

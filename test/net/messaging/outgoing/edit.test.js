@@ -9,7 +9,7 @@ vi.mock('../../../../src/core/dom-utils.js', () => ({ toast: vi.fn() }));
 vi.mock('../../../../src/net/history.js', () => ({
   history: { saveThread: vi.fn().mockResolvedValue(undefined), reportWriteError: vi.fn() },
 }));
-vi.mock('../../../../src/ui/chat-view/render-messages.js', () => ({ renderMessages: vi.fn() }));
+vi.mock('../../../../src/ui/chat-view/render-messages.js', () => ({ patchMessageBody: vi.fn() }));
 vi.mock('../../../../src/net/messaging/outgoing/encrypt-or-fallback.js', () => ({ encryptOrFallback: vi.fn() }));
 vi.mock('../../../../src/net/messaging/outgoing/stanza-body.js', () => ({ appendStanzaBody: vi.fn() }));
 vi.mock('../../../../src/net/messaging/outgoing/fallback-notify.js', () => ({ notifyEncryptionFallback: vi.fn() }));
@@ -19,7 +19,7 @@ import { editMessage } from '../../../../src/net/messaging/outgoing/edit.js';
 import { state } from '../../../../src/core/state.js';
 import { toast } from '../../../../src/core/dom-utils.js';
 import { history } from '../../../../src/net/history.js';
-import { renderMessages } from '../../../../src/ui/chat-view/render-messages.js';
+import { patchMessageBody } from '../../../../src/ui/chat-view/render-messages.js';
 import { encryptOrFallback } from '../../../../src/net/messaging/outgoing/encrypt-or-fallback.js';
 import { appendStanzaBody } from '../../../../src/net/messaging/outgoing/stanza-body.js';
 import { notifyEncryptionFallback } from '../../../../src/net/messaging/outgoing/fallback-notify.js';
@@ -114,7 +114,7 @@ describe('editMessage', () => {
     expect(history.saveThread).toHaveBeenCalledWith('alice@example.com', state.messages['alice@example.com']);
   });
 
-  it('чат открыт - renderMessages вызывается; иначе нет', async () => {
+  it('чат открыт - patchMessageBody вызывается; иначе нет', async () => {
     state.messages['alice@example.com'] = [{ id: 'msg-1', out: true, body: 'старый' }];
     state.activeChat = 'bob@example.com';
     const { node } = fakeBuilder();
@@ -123,11 +123,11 @@ describe('editMessage', () => {
     appendStanzaBody.mockReturnValue(false);
 
     await editMessage('alice@example.com', 'msg-1', 'новый текст');
-    expect(renderMessages).not.toHaveBeenCalled();
+    expect(patchMessageBody).not.toHaveBeenCalled();
 
     state.activeChat = 'alice@example.com';
     await editMessage('alice@example.com', 'msg-1', 'ещё правка');
-    expect(renderMessages).toHaveBeenCalled();
+    expect(patchMessageBody).toHaveBeenCalledWith(0);
   });
 
   it('после успешной отправки вызывается notifyEncryptionFallback с полученным fallbackReason', async () => {

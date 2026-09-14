@@ -43,11 +43,11 @@ function b64dec(str){ return Uint8Array.from(atob(str), c => c.charCodeAt(0)).bu
 // LS_KEY. Распознаём по наличию 'jid' и превращаем в новый формат при чтении,
 // чтобы у уже установленных клиентов ничего не потерялось.
 function normalizeBlob(raw){
-  if(!raw) return { account: null, omemoKeys: {} };
+  if(!raw) return { account: null, omemoKeys: {}, historyKeys: {} };
   if(raw.jid !== undefined || raw.wsUrl !== undefined){
-    return { account: raw, omemoKeys: {} };
+    return { account: raw, omemoKeys: {}, historyKeys: {} };
   }
-  return { account: raw.account || null, omemoKeys: raw.omemoKeys || {} };
+  return { account: raw.account || null, omemoKeys: raw.omemoKeys || {}, historyKeys: raw.historyKeys || {} };
 }
 
 // Расшифровывает общий vault-блок не чаще одного раза за сессию - результат
@@ -58,7 +58,7 @@ export async function getVaultBlob(passphraseProvider){
   if(state.vaultBlob) return state.vaultBlob;
   const raw = lsGet(LS_KEY, null);
   if(!raw || !raw.data || !raw.iv){
-    state.vaultBlob = { account: null, omemoKeys: {} };
+    state.vaultBlob = { account: null, omemoKeys: {}, historyKeys: {} };
     return state.vaultBlob;
   }
   await vault.ensureSetup(null, passphraseProvider);
@@ -147,6 +147,38 @@ export async function getOmemoStorageKey(bareJid, passphraseProvider){
     'raw', b64dec(rawKeyB64), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
   memCache.set(bareJid, cryptoKey);
   return cryptoKey;
+}
+
+// Тот же принцип, что и ensureOmemoRawKey/getOmemoStorageKey выше, но для
+// истории переписки и медиа-кэша (net/history/*, net/media-cache-shared.js) -
+// отдельный data-key в том же общем vault-блоке (свой неймспейс
+// blob.historyKeys, миграции со старой схемы для него нет, т.к. раньше
+// история вообще не шифровалась). Отдельный memCache-неймспейс ('hist:' +
+// bareJid), чтобы не столкнуться по ключу Map с OMEMO data-key'ем того же bareJid.
+export async function getHistoryStorageKey(bareJid, passphraseProvider){
+  const memKey = 'hist:' + bareJid;
+  if(memCache.has(memKey)) return memCache.get(memKey);
+  const blob = await getVaultBlob(passphraseProvider);
+  let rawKeyB64 = blob.historyKeys[bareJid];
+  if(!rawKeyB64){
+    rawKeyB64 = b64enc(crypto.getRandomValues(new Uint8Array(32)).buffer);
+    blob.historyKeys[bareJid] = rawKeyB64;
+    markVaultBlobDirty();
+    debugLog('[omemo-vault] сгенерирован новый data-key для истории переписки ' + bareJid);
+  }
+  await flushVaultBlob(passphraseProvider);
+  const cryptoKey = await crypto.subtle.importKey(
+    'raw', b64dec(rawKeyB64), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  memCache.set(memKey, cryptoKey);
+  return cryptoKey;
+}
+
+// Используется при logout/deleteAllForAccount (см. net/history.js) - симметрично forgetOmemoStorageKey.
+export function forgetHistoryStorageKey(bareJid){
+  memCache.delete('hist:' + bareJid);
+  if(state.vaultBlob && state.vaultBlob.historyKeys){
+    delete state.vaultBlob.historyKeys[bareJid];
+  }
 }
 
 export async function encryptOmemoValue(key, val){

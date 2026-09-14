@@ -16,7 +16,7 @@ vi.mock('../../../../src/net/messaging/outgoing.js', () => ({
 }));
 vi.mock('../../../../src/ui/roster.js', () => ({ renderRoster: vi.fn() }));
 vi.mock('../../../../src/ui/chat-view/render-messages.js', () => ({ renderMessages: vi.fn() }));
-vi.mock('../../../../src/net/trusted-contacts.js', () => ({ bumpContactMessageCount: vi.fn() }));
+vi.mock('../../../../src/net/trusted-contacts.js', () => ({ bumpOutgoingMessageCount: vi.fn() }));
 vi.mock('../../../../src/core/dom-utils.js', () => ({ toast: vi.fn(), nickOf: (j) => j }));
 vi.mock('../../../../src/core/uuid.js', () => ({ uuid: () => 'fixed-uuid' }));
 vi.mock('../../../../src/core/debug-log.js', () => ({ debugLog: vi.fn() }));

@@ -7,13 +7,13 @@ vi.mock('../../../../src/net/history.js', () => ({
   history: { saveThread: vi.fn().mockResolvedValue(undefined), reportWriteError: vi.fn() },
 }));
 vi.mock('../../../../src/net/message-body-parser.js', () => ({ parseMessageBody: vi.fn() }));
-vi.mock('../../../../src/ui/chat-view/render-messages.js', () => ({ renderMessages: vi.fn() }));
+vi.mock('../../../../src/ui/chat-view/render-messages.js', () => ({ patchMessageBody: vi.fn() }));
 
 import { handleCorrection } from '../../../../src/net/messaging/incoming/correction.js';
 import { state } from '../../../../src/core/state.js';
 import { history } from '../../../../src/net/history.js';
 import { parseMessageBody } from '../../../../src/net/message-body-parser.js';
-import { renderMessages } from '../../../../src/ui/chat-view/render-messages.js';
+import { patchMessageBody } from '../../../../src/ui/chat-view/render-messages.js';
 
 function fakeStanza({ targetId = 'm1', encrypted = false } = {}){
   return {
@@ -92,17 +92,18 @@ describe('handleCorrection', () => {
     expect(history.saveThread).not.toHaveBeenCalled();
   });
 
-  it('перерисовывает сообщения, только если исправление в активном чате', async () => {
+  it('точечно патчит одну строку, только если исправление в активном чате', async () => {
     parseMessageBody.mockResolvedValue({ body: 'x', encrypted: false });
     state.messages['alice@example.com'] = [{ id: 'm1', body: 'старое' }];
     state.activeChat = 'bob@example.com';
 
     await handleCorrection(fakeStanza({ targetId: 'm1' }), 'alice@example.com');
-    expect(renderMessages).not.toHaveBeenCalled();
+    expect(patchMessageBody).not.toHaveBeenCalled();
 
     state.activeChat = 'alice@example.com';
     await handleCorrection(fakeStanza({ targetId: 'm1' }), 'alice@example.com');
-    expect(renderMessages).toHaveBeenCalledTimes(1);
+    expect(patchMessageBody).toHaveBeenCalledTimes(1);
+    expect(patchMessageBody).toHaveBeenCalledWith(0);
   });
 
   it('свежерасшифрованное исправление своего же сообщения самому себе (parsed.encrypted && bare===me) - не применяется повторно', async () => {

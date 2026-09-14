@@ -8,9 +8,9 @@ vi.mock('../../../../src/core/debug-log.js', () => ({ debugLog: vi.fn() }));
 vi.mock('../../../../src/net/history.js', () => ({
   history: { saveThread: vi.fn().mockResolvedValue(undefined), reportWriteError: vi.fn() },
 }));
-vi.mock('../../../../src/ui/roster.js', () => ({ renderRoster: vi.fn() }));
-vi.mock('../../../../src/ui/chat-view/render-messages.js', () => ({ renderMessages: vi.fn() }));
-vi.mock('../../../../src/net/trusted-contacts.js', () => ({ bumpContactMessageCount: vi.fn() }));
+vi.mock('../../../../src/ui/roster.js', () => ({ patchRosterRow: vi.fn() }));
+vi.mock('../../../../src/ui/chat-view/render-messages.js', () => ({ appendMessage: vi.fn() }));
+vi.mock('../../../../src/net/trusted-contacts.js', () => ({ bumpOutgoingMessageCount: vi.fn() }));
 vi.mock('../../../../src/net/messaging/outgoing/encrypt-or-fallback.js', () => ({ encryptOrFallback: vi.fn() }));
 vi.mock('../../../../src/net/messaging/outgoing/stanza-body.js', () => ({ appendStanzaBody: vi.fn() }));
 vi.mock('../../../../src/i18n/t.js', () => ({ t: (key) => key }));
@@ -18,9 +18,9 @@ vi.mock('../../../../src/i18n/t.js', () => ({ t: (key) => key }));
 import { sendMessage } from '../../../../src/net/messaging/outgoing/send.js';
 import { state } from '../../../../src/core/state.js';
 import { history } from '../../../../src/net/history.js';
-import { renderRoster } from '../../../../src/ui/roster.js';
-import { renderMessages } from '../../../../src/ui/chat-view/render-messages.js';
-import { bumpContactMessageCount } from '../../../../src/net/trusted-contacts.js';
+import { patchRosterRow } from '../../../../src/ui/roster.js';
+import { appendMessage } from '../../../../src/ui/chat-view/render-messages.js';
+import { bumpOutgoingMessageCount } from '../../../../src/net/trusted-contacts.js';
 import { encryptOrFallback } from '../../../../src/net/messaging/outgoing/encrypt-or-fallback.js';
 import { appendStanzaBody } from '../../../../src/net/messaging/outgoing/stanza-body.js';
 
@@ -66,23 +66,23 @@ describe('sendMessage', () => {
     expect(state.messages['alice@example.com'][0].encrypted).toBe(true);
   });
 
-  it('чат сейчас открыт (activeChat === toJid) - renderMessages вызывается', async () => {
+  it('чат сейчас открыт (activeChat === toJid) - appendMessage вызывается', async () => {
     state.activeChat = 'alice@example.com';
     encryptOrFallback.mockResolvedValue({ blocked: false, encryptedEl: null, fallbackReason: null });
     appendStanzaBody.mockReturnValue(false);
 
     await sendMessage('alice@example.com', 'привет');
-    expect(renderMessages).toHaveBeenCalled();
+    expect(appendMessage).toHaveBeenCalledWith(0);
   });
 
-  it('чат сейчас не открыт (activeChat - другой) - renderMessages не вызывается, но renderRoster вызывается всегда', async () => {
+  it('чат сейчас не открыт (activeChat - другой) - appendMessage не вызывается, но patchRosterRow вызывается всегда', async () => {
     state.activeChat = 'bob@example.com';
     encryptOrFallback.mockResolvedValue({ blocked: false, encryptedEl: null, fallbackReason: null });
     appendStanzaBody.mockReturnValue(false);
 
     await sendMessage('alice@example.com', 'привет');
-    expect(renderMessages).not.toHaveBeenCalled();
-    expect(renderRoster).toHaveBeenCalled();
+    expect(appendMessage).not.toHaveBeenCalled();
+    expect(patchRosterRow).toHaveBeenCalledWith('alice@example.com');
   });
 
   it('счётчик доверенного контакта увеличивается и на исходящие тоже', async () => {
@@ -90,7 +90,7 @@ describe('sendMessage', () => {
     appendStanzaBody.mockReturnValue(false);
 
     await sendMessage('alice@example.com', 'привет');
-    expect(bumpContactMessageCount).toHaveBeenCalledWith('alice@example.com');
+    expect(bumpOutgoingMessageCount).toHaveBeenCalledWith('alice@example.com');
   });
 
   it('пришедшее сообщение сохраняется в историю треда целиком (весь массив, не только новую запись)', async () => {

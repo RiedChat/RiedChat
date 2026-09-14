@@ -10,6 +10,7 @@ import { omemo } from '../crypto/omemo/state.js';
 import { deleteSignalStore } from '../crypto/store.js';
 import { history } from '../net/history.js';
 import { renderMessages } from './chat-view/render-messages.js';
+import { trapFocus } from '../core/modal-a11y.js';
 import { t } from '../i18n/t.js';
 
 const S = state;
@@ -24,6 +25,7 @@ export function confirm(title, desc, opts){
   opts = opts || {};
   return new Promise(resolve => {
     const modal = $('confirm-modal');
+    const box = modal.querySelector('.modal-box');
     $('confirm-title').textContent = title;
     $('confirm-desc').textContent = desc || '';
     const okBtn = $('confirm-ok');
@@ -39,6 +41,7 @@ export function confirm(title, desc, opts){
       okBtn.removeEventListener('click', onOk);
       cancelBtn.removeEventListener('click', onCancel);
       modal.removeEventListener('click', onOverlay);
+      untrap();
       resolve(result);
     };
     const onOk = () => cleanup(true);
@@ -47,6 +50,8 @@ export function confirm(title, desc, opts){
     okBtn.addEventListener('click', onOk);
     cancelBtn.addEventListener('click', onCancel);
     modal.addEventListener('click', onOverlay);
+    // Escape приравнивается к отмене (тот же исход, что и клик по фону/Отмена).
+    const untrap = trapFocus(box, onCancel);
   });
 }
 

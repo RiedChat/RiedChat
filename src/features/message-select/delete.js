@@ -26,7 +26,11 @@ export async function deleteSelected(){
   const list = S.messages[jid] || [];
   S.messages[jid] = list.filter(m => !(m && ids.has(m.id)));
   try{
-    await history.saveThread(jid, S.messages[jid]);
+    // saveThreadNow, не saveThread: это один вызов на всю пачку удалённых
+    // сообщений (не по одному на событие), дебаунсить (net/history.js)
+    // тут нечего - лишняя пауза перед exitSelectMode()/toast() ниже была
+    // бы только заметной задержкой без всякой пользы.
+    await history.saveThreadNow(jid, S.messages[jid]);
   }catch(e){
     history.reportWriteError(e, t('select.deletingMessagesLabel'));
   }
