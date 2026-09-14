@@ -31,7 +31,7 @@ export function wireSwipeGesture(container, rowSelector, opts){
       g.bubble.style.transform = '';
     }
     if(g.row && typeof g.pointerId === 'number'){
-      try{ g.row.releasePointerCapture(g.pointerId); }catch(e){ /* уже отпущен браузером */ }
+      try{ g.row.releasePointerCapture(g.pointerId); }catch(_e){ /* уже отпущен браузером */ }
     }
     removeSwipeHints(g.hints);
     g = null;
@@ -76,7 +76,7 @@ export function wireSwipeGesture(container, rowSelector, opts){
         // ссылке (см. комментарий в onPointerDown выше) - тогда move/up
         // доходят до нас независимо от того, куда жест потом уедет, но
         // обычный клик по медиа без сдвига по-прежнему работает как обычно.
-        try{ g.row.setPointerCapture(e.pointerId); }catch(err){ /* Safari<13 - просто без capture */ }
+        try{ g.row.setPointerCapture(e.pointerId); }catch(_err){ /* Safari<13 - просто без capture */ }
         const leftGlyph = opts.leftHintGlyph ? opts.leftHintGlyph(g.row, g.item) : '↩';
         const rightGlyph = opts.rightHintGlyph ? opts.rightHintGlyph(g.row, g.item) : '⧉';
         g.hints = createSwipeHints(g.row, g.bubble, leftGlyph, rightGlyph);

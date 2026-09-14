@@ -3,12 +3,13 @@
 // с амплитудной волной вместо нативных <audio controls>.
 // Разметка/события - здесь; отрисовка canvas - waveform-draw.js;
 // вычисление пиков - waveform-peaks.js.
-import { html, setHTML } from '../../core/safe-html.js';
-import { drawWaveform, sizeWaveformCanvas } from './waveform-draw.js';
-import { wireVoiceAudio } from './audio-lifecycle.js';
-import { computeWaveformPeaks } from './waveform-peaks.js';
-import { t } from '../../i18n/t.js';
 import { createLruMap } from '../../core/lru-map.js';
+import { html, setHTML } from '../../core/safe-html.js';
+import { t } from '../../i18n/t.js';
+
+import { wireVoiceAudio } from './audio-lifecycle.js';
+import { drawWaveform, sizeWaveformCanvas } from './waveform-draw.js';
+import { computeWaveformPeaks } from './waveform-peaks.js';
 
 // Кэш посчитанных амплитудных пиков по blobUrl - тот же аргумент, что и в
 // mount.js:_prepared: blobUrl стабилен для одного и того же вложения между

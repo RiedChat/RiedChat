@@ -5,9 +5,10 @@
 // (identity-store.js: listPendingDeviceChanges). Раньше оба лога писались,
 // но никогда не читались - до UI предупреждение не доходило.
 import { omemo } from '../crypto/omemo/state.js';
-import { confirm } from './modals.js';
-import { openFingerprintModal } from './fingerprint-modal.js';
 import { t } from '../i18n/t.js';
+
+import { openFingerprintModal } from './fingerprint-modal.js';
+import { confirm } from './modals.js';
 
 // Вызывается из app.js openChat(jid) после того, как чат отрисован.
 export async function checkSecurityWarnings(bareJid){

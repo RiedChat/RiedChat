@@ -4,8 +4,9 @@
 // при воспроизведении вторая строка меняется на бегунок с таймкодом.
 // Выделено из ui/voice-player.js.
 import { html, raw, setHTML } from '../../core/safe-html.js';
-import { wireVoiceAudio } from './audio-lifecycle.js';
 import { t } from '../../i18n/t.js';
+
+import { wireVoiceAudio } from './audio-lifecycle.js';
 
 const fmt = (s) => {
   if(!isFinite(s) || s < 0) s = 0;
@@ -114,7 +115,7 @@ export function mountTrackPlayer(host, blobUrl, tags){
   let dragging = false;
   bar.addEventListener('pointerdown', (e) => {
     dragging = true;
-    try{ bar.setPointerCapture(e.pointerId); }catch(err){ /* Safari<13 - просто без capture */ }
+    try{ bar.setPointerCapture(e.pointerId); }catch(_err){ /* Safari<13 - просто без capture */ }
     seekFromEvent(e);
     e.preventDefault();
   });
@@ -124,7 +125,7 @@ export function mountTrackPlayer(host, blobUrl, tags){
   bar.addEventListener('pointermove', (e) => { if(dragging) seekFromEvent(e); });
   bar.addEventListener('pointerup', (e) => {
     dragging = false;
-    try{ bar.releasePointerCapture(e.pointerId); }catch(err){ /* уже отпущен браузером */ }
+    try{ bar.releasePointerCapture(e.pointerId); }catch(_err){ /* уже отпущен браузером */ }
   });
   bar.addEventListener('pointercancel', () => { dragging = false; });
 }

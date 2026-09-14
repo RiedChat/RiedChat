@@ -47,7 +47,7 @@ function decodePeaks(arrayBuffer){
       const max = Math.max(...raw, 0.0001);
       tmp.close && tmp.close();
       return raw.map(v => Math.max(0.12, v / max));
-    }catch(e){
+    }catch(_e){
       return Array.from({length: BARS}, (_, i) => 0.2 + 0.7 * Math.abs(Math.sin(i * 12.9898)));
     }
   })();

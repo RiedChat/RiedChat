@@ -2,12 +2,13 @@
 // Точка входа: строит плеер голосового/аудио-сообщения, определяя по
 // ID3-тегам (crypto/id3-parser.js), какой из двух режимов монтировать -
 // waveform-player.js (обычная запись) или track-player.js (музыкальный файл).
+import { createLruMap } from '../../core/lru-map.js';
 import { html, setHTML } from '../../core/safe-html.js';
 import { id3 } from '../../crypto/id3-parser.js';
-import { mountWaveformPlayer } from './waveform-player.js';
-import { mountTrackPlayer } from './track-player.js';
 import { t } from '../../i18n/t.js';
-import { createLruMap } from '../../core/lru-map.js';
+
+import { mountTrackPlayer } from './track-player.js';
+import { mountWaveformPlayer } from './waveform-player.js';
 
 // Кэш fetch+ID3-разбора по blobUrl. blobUrl приходит из net/media.js, где
 // уже кэшируется расшифрованный файл per aesgcmUrl - значит для ОДНОГО и
@@ -30,7 +31,7 @@ function prepareOnce(blobUrl){
     try{
       const resp = await fetch(blobUrl);
       arrayBuffer = await resp.arrayBuffer();
-    }catch(e){ /* переживём - просто не будет тегов/волны */ }
+    }catch(_e){ /* переживём - просто не будет тегов/волны */ }
     const tags = arrayBuffer ? id3.parse(arrayBuffer) : null;
     return { arrayBuffer, tags };
   })();
