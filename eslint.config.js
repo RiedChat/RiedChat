@@ -64,6 +64,8 @@ export default [
         getComputedStyle: 'readonly',
         IDBKeyRange: 'readonly',
         self: 'readonly',
+        MutationObserver: 'readonly',
+        CSS: 'readonly',
       },
     },
     plugins: {
@@ -75,7 +77,7 @@ export default [
         'warn',
         { 'newlines-between': 'always', alphabetize: { order: 'asc' } },
       ],
-      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
       'no-console': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],
       'no-control-regex': 'off',
