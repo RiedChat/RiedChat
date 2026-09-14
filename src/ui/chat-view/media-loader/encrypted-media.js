@@ -50,7 +50,7 @@ export async function loadEncryptedMedia(placeholderId, aesgcmUrl, senderJid){
 
       if(entry.status === 'error'){
         if(isMediaOnly) host.style.padding = '20px 16px'; // такому фолбэку уже нужны свои отступы
-        setHTML(host, html`<a href="${aesgcmUrl}" target="_blank" rel="noopener">📎 ${t('media.decryptFailed')}</a>`);
+        setHTML(host, html`<a href="${aesgcmUrl}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#paper-clip"></use></svg> ${t('media.decryptFailed')}</a>`);
         if(bubble){ bubble.dataset.kind = 'text'; delete bubble.dataset.downloadUrl; delete bubble.dataset.downloadName; }
         rescrollIfWasAtBottom();
         return;
@@ -83,7 +83,7 @@ export async function loadEncryptedMedia(placeholderId, aesgcmUrl, senderJid){
         // кружок терял круглую форму, растягиваясь в обычную 16:9-рамку.
         const isNoteVideo = media.isVideoNote(aesgcmUrl);
         if(isNoteVideo){
-          setHTML(host, html`<div class="video-note-box"><video src="${blobUrl}" controls preload="auto" playsinline loop></video><button type="button" class="media-expand-btn" title="${t('media.openFullscreen')}">⛶</button></div>`);
+          setHTML(host, html`<div class="video-note-box"><video src="${blobUrl}" controls preload="auto" playsinline loop></video><button type="button" class="media-expand-btn" title="${t('media.openFullscreen')}"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#expand"></use></svg></button></div>`);
         } else {
           // Рамка всегда строго 16:9 через классический padding-top hack (а не CSS aspect-ratio,
           // который может не поддерживаться в старых WebView) - видео заполняет её целиком
@@ -93,7 +93,7 @@ export async function loadEncryptedMedia(placeholderId, aesgcmUrl, senderJid){
           // подгрузкой нечего, а "metadata" во многих браузерах не декодирует вообще
           // никакого кадра, пока не нажат Play (пустой/чёрный прямоугольник до захвата
           // постера, а если сам захват по любой причине не сработает - так и остаётся).
-          setHTML(host, html`<div class="video-ratio-box"><video src="${blobUrl}" controls preload="auto" playsinline></video><button type="button" class="media-expand-btn" title="${t('media.openFullscreen')}">⛶</button></div>`);
+          setHTML(host, html`<div class="video-ratio-box"><video src="${blobUrl}" controls preload="auto" playsinline></video><button type="button" class="media-expand-btn" title="${t('media.openFullscreen')}"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#expand"></use></svg></button></div>`);
         }
         const videoEl = host.querySelector('video');
         // ПРЕВЬЮ: сначала пробуем то, что отправитель встроил прямо в
@@ -122,7 +122,7 @@ export async function loadEncryptedMedia(placeholderId, aesgcmUrl, senderJid){
         // (см. комментарий выше про rawName/downloadName), и скачивался файл
         // без имени/расширения. Тут же показываем то же имя в самом
         // превью-линке, а не только общую надпись "Скачать файл".
-        setHTML(host, html`<a href="${blobUrl}" target="_blank" rel="noopener" download="${downloadName}" class="file-download-link">📎 <span class="file-download-name">${downloadName}</span></a>`);
+        setHTML(host, html`<a href="${blobUrl}" target="_blank" rel="noopener" download="${downloadName}" class="file-download-link"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#paper-clip"></use></svg> <span class="file-download-name">${downloadName}</span></a>`);
       }
       rescrollIfWasAtBottom();
 }

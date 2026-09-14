@@ -24,10 +24,18 @@ async function loadThumb(host, info, senderJid){
     } else {
       setHTML(host, html`<video src="${blobUrl}" muted preload="metadata" playsinline></video>`);
       const videoEl = host.querySelector('video');
-      // Тот же нюанс, что и в media-loader.js: у кружков (category
-      // 'videonote') webm без индекса ключевых кадров - перемотка к
-      // середине там ненадёжна, хватаем первый декодированный кадр.
-      if(videoEl) setPreviewPoster(videoEl, {skipSeek: info.category === 'videonote'});
+      if(videoEl){
+        // Как и в media-loader/encrypted-media.js: сперва пробуем кадр,
+        // встроенный отправителем прямо в ссылку (media.extractThumbDataUrl) -
+        // это надёжно всегда, включая кружки. Постфактумный setPreviewPoster
+        // (перемотка/захват уже скачанного файла) для кружков (webm без
+        // индекса ключевых кадров из MediaRecorder) на части браузеров не
+        // срабатывает вовсе, поэтому без этой проверки превью кружков в
+        // поиске часто оставалось пустым - используем его только как fallback.
+        const embeddedThumb = media.extractThumbDataUrl(info.url);
+        if(embeddedThumb) videoEl.poster = embeddedThumb;
+        else setPreviewPoster(videoEl, {skipSeek: info.category === 'videonote'});
+      }
     }
   }catch(e){
     if(document.body.contains(host)) setHTML(host, raw(thumbFallbackHtml(info)));

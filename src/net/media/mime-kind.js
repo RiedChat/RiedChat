@@ -24,7 +24,12 @@ export function extOf(url){
 // отрезаны до вызова decodeURIComponent, чтобы percent-encoding из самого
 // имени файла не ломался на невалидной последовательности.
 export function fileNameOf(url){
-  const clean = String(url || '').split('#')[0].split('?')[0];
+  const str = String(url || '');
+  const m = str.match(/[;#]n=([A-Za-z0-9_-]+)/);
+  if(m){
+    try{ return decodeURIComponent(escape(atob(m[1].replace(/-/g,'+').replace(/_/g,'/')))); }catch(e){}
+  }
+  const clean = str.split('#')[0].split('?')[0];
   const last = clean.split('/').pop() || '';
   try{ return decodeURIComponent(last); }catch(e){ return last; }
 }

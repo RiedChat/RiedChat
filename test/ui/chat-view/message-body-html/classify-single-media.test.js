@@ -30,10 +30,11 @@ describe('classifySingleMedia', () => {
     expect(classifySingleMedia(url)).toEqual({ encrypted: true, kind: 'stickerpack', url });
   });
 
-  it('aesgcm-ссылка kind=file, но не пак стикеров - null (голый файл не рендерим как single-media)', () => {
+  it('aesgcm-ссылка kind=file, но не пак стикеров - {encrypted:true, kind:file}', () => {
     media.kindOf.mockReturnValue('file');
     media.isStickerPack.mockReturnValue(false);
-    expect(classifySingleMedia('aesgcm://host/doc.pdf#abcd1234')).toBeNull();
+    const url = 'aesgcm://host/doc.pdf#abcd1234';
+    expect(classifySingleMedia(url)).toEqual({ encrypted: true, kind: 'file', url });
   });
 
   it('одна открытая ссылка на картинку (.jpg) - {encrypted:false, kind:image}', () => {

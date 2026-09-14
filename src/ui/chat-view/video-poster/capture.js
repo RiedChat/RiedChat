@@ -12,26 +12,34 @@ import { onDecodedFrame } from './decoded-frame.js';
 // работа CPU меньше на порядок для 4K/1080p-видео.
 const MAX_POSTER_WIDTH = 400;
 
-export function captureFrame(probe, videoEl, cleanup){
-  const grab = () => {
-    try{
-      const w = probe.videoWidth, h = probe.videoHeight;
-      if(w && h){
-        const scale = Math.min(1, MAX_POSTER_WIDTH / w);
-        const cw = Math.max(1, Math.round(w * scale));
-        const ch = Math.max(1, Math.round(h * scale));
-        const canvas = document.createElement('canvas');
-        canvas.width = cw;
-        canvas.height = ch;
-        canvas.getContext('2d').drawImage(probe, 0, 0, cw, ch);
-        videoEl.poster = canvas.toDataURL('image/jpeg', 0.82);
-      } else {
-        debugLog('[media] превью видео: videoWidth/Height ещё 0 при захвате кадра');
-      }
-    }catch(e){
-      debugLog('[media] превью видео: не удалось захватить кадр - ' + (e && e.message ? e.message : e));
+// Синхронный захват ТЕКУЩЕГО кадра зонда без какого-либо ожидания - вызывать
+// только когда кадр уже точно декодирован (см. captureFrame ниже - обычный
+// путь - и index.js:skipSeek, который сам ждёт кадр ДО паузы и зовёт эту
+// функцию напрямую).
+export function captureFrameNow(probe, videoEl, cleanup){
+  try{
+    const w = probe.videoWidth, h = probe.videoHeight;
+    if(w && h){
+      const scale = Math.min(1, MAX_POSTER_WIDTH / w);
+      const cw = Math.max(1, Math.round(w * scale));
+      const ch = Math.max(1, Math.round(h * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = cw;
+      canvas.height = ch;
+      canvas.getContext('2d').drawImage(probe, 0, 0, cw, ch);
+      videoEl.poster = canvas.toDataURL('image/jpeg', 0.82);
+    } else {
+      debugLog('[media] превью видео: videoWidth/Height ещё 0 при захвате кадра');
     }
-    cleanup();
-  };
-  onDecodedFrame(probe, grab);
+  }catch(e){
+    debugLog('[media] превью видео: не удалось захватить кадр - ' + (e && e.message ? e.message : e));
+  }
+  cleanup();
+}
+
+// Ждёт декодированный кадр (см. decoded-frame.js) и затем захватывает его -
+// путь для перемотки (seekTo/primeThenSeek), где момент "кадр готов" заранее
+// не известен вызывающему коду.
+export function captureFrame(probe, videoEl, cleanup){
+  onDecodedFrame(probe, () => captureFrameNow(probe, videoEl, cleanup));
 }

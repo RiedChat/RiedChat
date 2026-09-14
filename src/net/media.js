@@ -27,11 +27,12 @@ function currentDbName(){
 }
 
 export const media = {
-  // Необязательный ';t=<base64url>' хвост после hex-ключа - встроенное
-  // превью-кадра (см. net/media/thumb-codec.js и net/upload.js). ';' не
-  // входит в hex-алфавит, поэтому старые ссылки без превью по-прежнему
-  // матчатся ровно так же, как раньше.
-  AESGCM_RE: /aesgcm:\/\/[^\s#]+#[0-9a-fA-F]+(?:;t=[A-Za-z0-9_-]+)?/g,
+  // Необязательные ';t=<base64url>' (встроенное превью-кадра, см.
+  // net/media/thumb-codec.js) и/или ';n=<base64url>' (имя файла, см.
+  // net/media/mime-kind.js) хвосты после hex-ключа - оба пишет
+  // net/upload.js, ';' не входит в hex-алфавит, поэтому старые ссылки без
+  // этих хвостов по-прежнему матчатся ровно так же, как раньше.
+  AESGCM_RE: /aesgcm:\/\/[^\s#]+#[0-9a-fA-F]+(?:;(?:t|n)=[A-Za-z0-9_-]+)*/g,
 
   kindOfMime, extOf, fileNameOf, kindOf, isVideoNote, isSticker, isStickerPack,
 

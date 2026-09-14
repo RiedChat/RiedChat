@@ -2,13 +2,28 @@
 // Перемотка зонда к нужной позиции.
 
 export function seekTo(probe, t, onDone){
-  const onSeeked = () => {
+  // Подстраховка: на части файлов (некоторые webm/blob-URL без индекса
+  // ключевых кадров в контейнере, обычно замеченное у видео-кружков, но не
+  // исключено и у обычных видео) currentTime молча игнорируется браузером -
+  // 'seeked' не срабатывает НИКОГДА, а не просто с задержкой. Без таймаута
+  // здесь onDone не вызывался бы вовсе - до самой безопасной 8-секундной
+  // очистки зонда в probe.js, которая раньше просто удаляла зонд, ничего не
+  // захватив (см. её же fallback-колбэк, добавленный вместе с этим фиксом).
+  // 900ms с запасом покрывает нормальную перемотку (обычно десятки мс) и
+  // не даёт застрявшему файлу тянуть время до общего 8-секундного предела.
+  let settled = false;
+  const finish = () => {
+    if(settled) return;
+    settled = true;
+    clearTimeout(timeoutId);
     probe.removeEventListener('seeked', onSeeked);
     onDone();
   };
+  const onSeeked = finish;
+  const timeoutId = setTimeout(finish, 900);
   probe.addEventListener('seeked', onSeeked);
   try{ probe.currentTime = t; }
-  catch(_e){ probe.removeEventListener('seeked', onSeeked); onDone(); }
+  catch(_e){ finish(); }
 }
 
 // На части браузеров (в первую очередь Safari/iOS) drawImage() из <video>,

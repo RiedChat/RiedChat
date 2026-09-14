@@ -4,7 +4,8 @@
 // только от DOM API и debugLog.
 import { createProbe } from './probe.js';
 import { seekTo, primeThenSeek } from './seek.js';
-import { captureFrame } from './capture.js';
+import { captureFrame, captureFrameNow } from './capture.js';
+import { onDecodedFrame } from './decoded-frame.js';
 import { createLruMap } from '../../../core/lru-map.js';
 
 // Кэш уже захваченного постера (dataURL) по blobUrl видео. render-messages.js
@@ -41,9 +42,10 @@ const _posterCache = createLruMap(200); // blobUrl -> dataURL
 // Если и это не помогает, всё равно захватываем хоть какой-то декодированный
 // кадр, а не оставляем пустой прямоугольник.
 //
-// opts.skipSeek - не пытаться перематывать зонд вообще, а хватать кадр сразу
-// после короткого play()/pause(). Нужен для кружков (features/video-note.js):
-// это всегда webm ИЗ MediaRecorder БЕЗ индекса/cues в контейнере - на таких
+// opts.skipSeek - не пытаться перематывать зонд вообще, а дождаться первого
+// реально декодированного кадра прямо во время короткого play(), и только
+// потом ставить на паузу. Нужен для кружков (features/video-note.js): это
+// всегда webm ИЗ MediaRecorder БЕЗ индекса/cues в контейнере - на таких
 // файлах currentTime вообще не работает (браузер молча игнорирует перемотку,
 // 'seeked' не срабатывает даже с уже используемым выше трюком "перемотать
 // далеко вперёд"), и без skipSeek постер у кружков просто никогда не
@@ -63,7 +65,7 @@ export function setPreviewPoster(videoEl, opts){
     return;
   }
 
-  const { probe, cleanup } = createProbe(src);
+  const { probe, cleanup } = createProbe(src, () => capture());
   // Оборачиваем cleanup: сохраняем в кэш то, что captureFrame успел записать
   // в videoEl.poster (dataURL), ДО того как зонд уничтожается. Если кадр
   // захватить не удалось (videoEl.poster остался пуст), в кэш ничего не
@@ -82,12 +84,22 @@ export function setPreviewPoster(videoEl, opts){
   // видео (особенно webm) это и давало пустой/серый постер.
   probe.addEventListener('canplay', () => {
     if(skipSeek){
-      // Без перемотки: короткий play() уже прогревает декодер и продвигает
-      // плейбек на пару кадров вперёд от самого начала (обычно не чёрного) -
-      // сразу после паузы хватаем то, что уже декодировано.
-      // pause() сразу после play() иногда бросает на гонке с промисом play() -
-      // не критично, capture() ниже снимает кадр независимо от исхода pause().
-      const proceed = () => { try{ probe.pause(); }catch(e){} capture(); };
+      // БЫЛО: play() -> сразу pause() -> ждать декодированный кадр. Баг
+      // именно для кружков: на паузе новый кадр может никогда не
+      // "закомпоноваться" (та же причина, по которой requestVideoFrameCallback
+      // способен зависнуть - см. decoded-frame.js), а pause() сразу после
+      // play() нередко успевал сработать РАНЬШЕ, чем декодировался хоть один
+      // кадр - grab() читал ещё нулевые videoWidth/videoHeight или пустой canvas.
+      // СТАЛО: ждём реально декодированный кадр, пока видео ЕЩЁ играет, и
+      // только потом ставим на паузу и захватываем СИНХРОННО (captureFrameNow,
+      // без повторного onDecodedFrame) - на паузе тут кадр уже гарантированно
+      // есть, ждать нечего.
+      const proceed = () => {
+        onDecodedFrame(probe, () => {
+          try{ probe.pause(); }catch(e){}
+          captureFrameNow(probe, videoEl, cleanupAndCache);
+        });
+      };
       const playPromise = probe.play();
       if(playPromise && typeof playPromise.then === 'function'){
         playPromise.then(proceed).catch(proceed);

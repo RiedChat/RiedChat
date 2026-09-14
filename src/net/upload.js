@@ -133,7 +133,7 @@ async function _runUpload(file, queueLabel, targetJid, opts, replyTo){
       // и после следующей чистки этого меты можно будет форсировать переотправку).
       const linkToSend = useE2E ? uploadEncrypt.buildAesgcmLink(cached.url, cached.aesKeyIvHex) : cached.url;
       media.primeLocalBlob(linkToSend, file);
-      const {fallbackReason} = await sendMessage(targetJid, _composeBody(replyTo, linkToSend));
+      const {fallbackReason} = await sendMessage(targetJid, _composeBody(replyTo, linkToSend), file.name);
       notifyEncryptionFallback(fallbackReason);
       _clearReplyToIfStillSame(replyTo);
       return;
@@ -191,6 +191,9 @@ async function _runUpload(file, queueLabel, targetJid, opts, replyTo){
     const thumbB64url = await thumbPromise;
     if(thumbB64url) linkToSend = appendThumbToLink(linkToSend, thumbB64url);
   }
+  if(kind === 'file'){
+    linkToSend += (linkToSend.includes('#') ? ';' : '#') + 'n=' + btoa(unescape(encodeURIComponent(file.name))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  }
   // Файл уже лежит у нас на руках как plaintext (тот же `file`, что
   // грузили) - кладём его в кэш медиа ПОД ТОЙ ЖЕ ссылкой, что уйдёт
   // в сообщение. Иначе chat-view/render-messages.js при рендере своего же исходящего
@@ -199,7 +202,7 @@ async function _runUpload(file, queueLabel, targetJid, opts, replyTo){
   if(aesKeyIvHex && linkToSend.startsWith('aesgcm://')){
     media.primeLocalBlob(linkToSend, file);
   }
-  const {fallbackReason} = await sendMessage(targetJid, _composeBody(replyTo, linkToSend));
+  const {fallbackReason} = await sendMessage(targetJid, _composeBody(replyTo, linkToSend), file.name);
   notifyEncryptionFallback(fallbackReason);
   _clearReplyToIfStillSame(replyTo);
 }

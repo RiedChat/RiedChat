@@ -88,6 +88,7 @@
 /* лёгкий "хвостик" пузыря, как в Telegram - один угол чуть менее скруглён */
 .msg-row.out .bubble{ background:var(--ink); color:var(--paper); border:0.75px solid var(--ink); border-bottom-right-radius:6px; }
 .msg-row.in .bubble{ background:var(--paper); color:var(--ink); border:0.75px solid var(--ink); border-bottom-left-radius:6px; }
+.call-log-icon{ width:0.95em; height:0.95em; vertical-align:-0.15em; }
 .bubble-time{
   display:flex; align-items:center; gap:5px; font-size:calc(var(--chat-font-size, 0.9062rem) * 0.6897); margin-top:5px; font-family:'IBM Plex Mono',monospace;
   opacity:.55; text-align:right; justify-content:flex-end;
@@ -138,13 +139,28 @@
    форму отвечает .bubble.media-only .media-frame .video-note-box
    (css/media-messages.css) - тот селектор здесь не подходит, бабл не
    media-only. Тот же диаметр 200px, что и там, но без специфичных для
-   media-only оверлеев (обрезка по кругу самого пузыря/кнопка на его углу
-   тут не нужны - пузырь остаётся обычным прямоугольным текстовым). */
+   media-only оверлеев (обрезка по кругу самого пузыря тут не нужна -
+   пузырь остаётся обычным прямоугольным текстовым).
+   overflow не hidden: сам круг видео и так обрезается собственным
+   border-radius:50% на <video> ниже (для replaced-элементов радиус
+   клипует содержимое и без overflow:hidden на родителе) - а вот кнопка
+   "на весь экран" должна торчать НАД кругом, на его углу, и hidden тут
+   как раз срезал бы её подчистую (тот же случай, что и в media-only
+   ветке в media-messages.css). */
 .bubble .video-note-box{
   position:relative; display:block; width:200px; height:200px; max-width:100%;
-  margin-top:6px; border-radius:50%; overflow:hidden; background:var(--ink-05);
+  margin-top:6px; border-radius:50%; background:var(--ink-05);
+}
+/* Та же диагональная посадка кнопки, что и у media-only-кружка
+   (см. media-messages.css:.bubble.media-only .media-frame .video-note-box
+   .media-expand-btn) - иначе сработало бы базовое top:8px/right:8px из
+   modals.css, а угол квадратного бокса лежит за пределами вписанной
+   окружности, и кнопка выглядела бы прилепленной внутрь круга сбоку. */
+.bubble .video-note-box .media-expand-btn{
+  top:0; right:0; transform:translate(35%,-35%);
 }
 .bubble .video-note-box video{
+
   display:block; width:100%; height:100%; object-fit:cover; object-position:center; border-radius:50%;
 }
 .bubble .media-embed{ margin-top:6px; }

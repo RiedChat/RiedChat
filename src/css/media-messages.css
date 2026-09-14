@@ -107,6 +107,7 @@
   background:rgba(0,0,0,.5); color:#fff; font-size:1.25rem;
   padding-left:4px; /* оптический центр треугольника play чуть смещён вправо */
 }
+.video-tap-load-play svg.icon-svg{ width:24px; height:24px; vertical-align:middle; }
 
 /* Заглушка "нажмите, чтобы загрузить картинку" (см. features/image-settings.js,
    ЧАСТЬ 1/2 - riedchat-p5-remaining.md). Переиспользует ту же 16:9-рамку и
@@ -114,13 +115,25 @@
    оптического сдвига треугольника play. */
 .image-tap-load{ cursor:pointer; }
 .image-tap-load .video-tap-load-play{ padding-left:0; font-size:1.4rem; }
+.image-tap-load .video-tap-load-play svg.icon-svg{ padding-left:0; }
 
 /* Имя/тип файла (.apk/.zip/.pdf и т.п.) на плашке "нажмите, чтобы загрузить"
-   generic-вложения - под круглой иконкой 📎, см. bubble-renderers.js. */
+   generic-вложения - под круглой иконкой 📎, см. bubble-renderers.js. В отличие
+   от video-tap-load-play (там своя тёмная подложка rgba(0,0,0,.5) поверх кадра
+   видео - белый цвет там уместен всегда), здесь текст лежит прямо на плоском
+   фоне .video-ratio-box (background:var(--ink-05) - едва заметный оттенок
+   цвета темы, а не тёмный кадр), поэтому нужен цвет ОСНОВНОГО текста самого
+   пузыря - через inherit, а не жёстко var(--ink). У исходящих сообщений
+   пузырь инвертирован (.msg-row.out .bubble{background:var(--ink);
+   color:var(--paper)} в messages.css) - именно поэтому var(--ink) здесь была
+   неверна: она совпадала бы с ФОНОМ исходящего пузыря (var(--ink) и там, и
+   там), то есть подпись сливалась бы с фоном ровно как раньше с жёстким
+   #fff. inherit же всегда берёт уже правильный цвет текста конкретно этого
+   пузыря (var(--paper) у исходящих, var(--ink) у входящих), какой бы ни была
+   тема. Тень убрана - она была нужна только для контраста с видео-превью. */
 .file-tap-load-name{
   position:absolute; left:8px; right:8px; bottom:10px;
-  text-align:center; color:#fff; font-size:.8rem; line-height:1.2;
-  text-shadow:0 1px 3px rgba(0,0,0,.6);
+  text-align:center; color:inherit; font-size:.8rem; line-height:1.2;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 

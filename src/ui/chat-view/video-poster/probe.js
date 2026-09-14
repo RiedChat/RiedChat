@@ -6,7 +6,16 @@
 // Создаёт невидимый (но не off-screen - часть браузеров приостанавливает
 // декодирование кадров у видео за пределами вьюпорта) зонд и возвращает
 // его вместе с идемпотентной функцией cleanup().
-export function createProbe(src){
+//
+// onSafetyTimeout - вызывается ВМЕСТО немедленного cleanup(), если обычный
+// путь (canplay -> seeked/decoded frame -> capture) не завершился за 8с
+// (см. index.js: там это последняя попытка честно захватить кадр, а не
+// прямое удаление зонда). Раньше таймер сам звал cleanup() напрямую - зонд
+// тихо исчезал БЕЗ единой попытки захвата, превью навсегда оставалось
+// пустым, а _posterCache ничего не кэшировал (кэшируется только успешный
+// poster) - следующий рендер того же видео повторял те же обречённые 8с
+// заново. Если onSafetyTimeout не передан, поведение как раньше (cleanup()).
+export function createProbe(src, onSafetyTimeout){
   const probe = document.createElement('video');
   probe.muted = true;
   probe.playsInline = true;
@@ -35,9 +44,15 @@ export function createProbe(src){
     probe.remove();
   };
   // Подстраховка: если что-то из событий так и не сработает (странный файл,
-  // специфика конкретного браузера), зонд не должен висеть в DOM вечно -
-  // просто тихо убираем его через несколько секунд.
-  const safetyTimer = setTimeout(cleanup, 8000);
+  // специфика конкретного браузера), зонд не должен висеть в DOM вечно.
+  // done ещё не true - значит обычный путь захвата за 8с не отработал;
+  // даём вызывающему коду последний шанс захватить хоть какой-то кадр
+  // (см. onSafetyTimeout выше) вместо того, чтобы просто исчезнуть.
+  const safetyTimer = setTimeout(() => {
+    if(done) return;
+    if(onSafetyTimeout) onSafetyTimeout();
+    else cleanup();
+  }, 8000);
 
   return { probe, cleanup };
 }

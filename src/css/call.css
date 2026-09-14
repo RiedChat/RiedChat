@@ -62,3 +62,5 @@
 .call-btn-decline{ background:var(--danger); border-color:var(--danger); color:#000; }
 .call-btn-toggle.muted, .call-btn-toggle.off{ background:var(--ink); color:var(--paper); }
 .call-btn[hidden]{ display:none; }
+
+.call-btn-icon{ border:none; }

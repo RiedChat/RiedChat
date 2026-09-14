@@ -34,6 +34,16 @@ export function classifySingleMedia(raw){
     // "Добавить пак" (bubble-renderers.js/features/stickers/pack-card.js),
     // а не голой ссылкой на файл.
     if(kind === 'file' && media.isStickerPack(trimmed)) return {encrypted:true, kind:'stickerpack', url: trimmed};
+    // Обычный файл (не картинка/видео/аудио/пак стикеров) - тоже aesgcm://
+    // (см. net/upload.js), т.е. это всегда реальное вложение, а не ссылка,
+    // вручную вставленная в текст: safe возвращать как single-media. Раньше
+    // здесь падали в null, из-за чего одиночный файл рендерился обычным
+    // текстовым пузырём с сырой aesgcm-ссылкой вместо карточки вложения
+    // (renderMediaOnlyBubble уже умеет kind:'file' - см. bubble-renderers.js),
+    // и по той же причине при цитировании такого сообщения (см.
+    // features/message-swipe/quote.js и quoteDisplayText ниже) вместо
+    // дружелюбной метки "📎 Файл" показывалась сама ссылка.
+    if(kind === 'file') return {encrypted:true, kind:'file', url: trimmed};
     return null;
   }
   const urlMatches = trimmed.match(URL_RE);
@@ -97,7 +107,7 @@ export function formatMessageBody(rawBody, {out, nextSeq}){
         const thumbId = 'quote-thumb-' + nextSeq();
         const holdOff = !(out || (loadImageAutoDownloadEnabled() && isTrustedContact(state.activeChat)));
         quoteThumbHtml = holdOff
-          ? `<div class="${thumbClass} image-tap-load video-tap-load" id="${thumbId}"><span class="video-tap-load-overlay"><span class="video-tap-load-play">🖼️</span></span></div>`
+          ? `<div class="${thumbClass} image-tap-load video-tap-load" id="${thumbId}"><span class="video-tap-load-overlay"><span class="video-tap-load-play"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#photo"></use></svg></span></span></div>`
           : `<div class="${thumbClass}" id="${thumbId}"></div>`;
         quoteMedia = { id: thumbId, url: quotedMedia.url, kind: quotedMedia.kind, isNote, holdOff };
       } else if(quotedMedia.kind === 'image'){
@@ -110,7 +120,7 @@ export function formatMessageBody(rawBody, {out, nextSeq}){
           quoteThumbHtml = `<div class="${thumbClass}"><img src="${escapeHtml(quotedMedia.url)}" loading="lazy"></div>`;
         } else {
           const thumbId = 'quote-thumb-' + nextSeq();
-          quoteThumbHtml = `<div class="${thumbClass} image-tap-load video-tap-load" id="${thumbId}"><span class="video-tap-load-overlay"><span class="video-tap-load-play">🖼️</span></span></div>`;
+          quoteThumbHtml = `<div class="${thumbClass} image-tap-load video-tap-load" id="${thumbId}"><span class="video-tap-load-overlay"><span class="video-tap-load-play"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#photo"></use></svg></span></span></div>`;
           mediaPlaceholders.push({id: thumbId, url: quotedMedia.url, kind: 'plain-image', holdOff: true});
         }
       }
@@ -159,7 +169,7 @@ export function formatMessageBody(rawBody, {out, nextSeq}){
     const thumbDataUrl = kind === 'video' ? media.extractThumbDataUrl(u) : null;
     const thumbStyle = thumbDataUrl ? ` style="background-image:url('${thumbDataUrl}');background-size:cover;background-position:center"` : '';
     const boxClass = isNote ? 'video-note-box' : 'video-ratio-box';
-    const tapIcon = kind === 'file' ? '📎' : '▶';
+    const tapIcon = kind === 'file' ? '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#paper-clip"></use></svg>' : '▶';
     const inner = holdOff
       // span, а не div: строкой ниже bodyHtml прогоняется через regex, который
       // ищет конец media-embed по ПЕРВОМУ </div> - вложенный <div> тут обрезал
@@ -186,7 +196,7 @@ export function formatMessageBody(rawBody, {out, nextSeq}){
       // на настоящий <img> прямо в пузыре (не открытие в отдельной вкладке).
       const id = 'media-' + nextSeq() + '-' + (mediaIdx++);
       mediaPlaceholders.push({id, url: u, kind: 'plain-image', holdOff: true});
-      return `<div class="media-embed image-tap-load video-tap-load" id="${id}"><span class="video-ratio-box"><span class="video-tap-load-overlay"><span class="video-tap-load-play">🖼️</span></span></span></div>`;
+      return `<div class="media-embed image-tap-load video-tap-load" id="${id}"><span class="video-ratio-box"><span class="video-tap-load-overlay"><span class="video-tap-load-play"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#photo"></use></svg></span></span></span></div>`;
     }
     return `<a href="${u}" target="_blank" rel="noopener">${u}</a>`;
   });

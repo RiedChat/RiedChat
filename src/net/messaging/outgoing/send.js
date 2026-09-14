@@ -21,7 +21,16 @@ import { t } from '../../../i18n/t.js';
 
 const S = state;
 
-export async function sendMessage(toJid, body){
+// localFileName - настоящее имя файла, как оно называлось у отправителя В
+// МОМЕНТ ЗАГРУЗКИ (file.name из net/upload.js, взятое ДО шифрования и ДО
+// аплоада). Кладём его прямо в локальную запись сообщения, а не полагаемся
+// на то, что потом получится вытащить его обратно из ссылки (media.fileNameOf) -
+// та работает только с тем, что реально попало в саму ссылку, и годится как
+// общий канал для СОБЕСЕДНИКА (другого способа передать ему имя файла у нас
+// нет), но для СВОЕЙ же собственной исходящей записи это лишний и хрупкий
+// круг: base64/URL-кодирование туда и разбор обратно, притом что имя файла
+// у нас и так уже есть на руках как обычная JS-строка.
+export async function sendMessage(toJid, body, localFileName){
   // ВАЖНО: раньше здесь стояла проверка `chatSupport[toJid] !== false` ДО вызова
   // encryptFor(), и раньше же encryptFor() форсировал getDeviceList(toBareJid, true)
   // на КАЖДУЮ отправку - это гарантировало актуальность списка устройств ценой
@@ -46,7 +55,7 @@ export async function sendMessage(toJid, body){
   debugLog('OUTGOING <message>: ' + msg.toString());
   S.connection.send(msg);
   S.messages[toJid] = S.messages[toJid] || [];
-  S.messages[toJid].push({id: msgId, body, time: Date.now(), out:true, encrypted, read:true, status:'sent'});
+  S.messages[toJid].push({id: msgId, body, time: Date.now(), out:true, encrypted, read:true, status:'sent', fileName: localFileName || null});
   const newIdx = S.messages[toJid].length - 1;
   history.saveThread(toJid, S.messages[toJid]).catch(e => history.reportWriteError(e, t('history.ctxChatHistory')));
   // Эвристика "доверенный контакт" (riedchat-security-plan.md, п.5) считает

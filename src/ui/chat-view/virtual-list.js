@@ -18,15 +18,25 @@
 // требует вовсе: браузер сам ничего не сдвигает, когда контент появляется
 // ниже текущей позиции просмотра.
 //
-// Окно только РАСТЁТ во время скролла (никогда не обрезается снизу/сверху
-// автоматически) - обрезка вверх исключена из этой версии сознательно:
-// удаление строк ВЫШЕ видимой области потребовало бы такой же компенсации
-// scrollTop, как и вставка, а лишний код без крайней необходимости (истории
-// на сотни-тысячи сообщений, не сотни тысяч) добавлять не стали. Единственное
-// исключение - clampWindowToLength ниже, который подрезает окно, если план
-// стал КОРОЧЕ (сообщение удалено), а не длиннее.
-const WINDOW_SIZE = 100;   // размер окна при первом открытии чата/прыжке
-const GROW_STEP = 30;      // на сколько строк раздвигаем окно у края
+// Окно - скользящее и ограничено по размеру MAX_WINDOW_SIZE: при раздвижке
+// у одного края, если общий размер окна превышает лимит, ПРОТИВОПОЛОЖНЫЙ
+// край подрезается на столько же строк (чанками по GROW_STEP), т.е. старые
+// строки реально выгружаются из DOM (см. reconcileKeyedChildren в
+// list-diff.js - убирает узлы, отсутствующие в новом плане), а не копятся
+// бесконечно. При обратном скролле они строятся заново из уже загруженного
+// S.messages (в самой истории на диске/MAM ничего не выгружается - выгрузка
+// касается только смонтированных DOM-узлов).
+//
+// Компенсация scrollTop нужна только для операций, меняющих контент ВЫШЕ
+// видимой области (и вставка, и выгрузка сверху) - см. growWindowUp/
+// growWindowDown ниже: каждая возвращает { pre, win }, где pre - окно ПОСЛЕ
+// вставки, но ДО подрезки противоположного края, чтобы вызывающий код
+// (render-messages.js) смонтировал вставку и подрезку двумя раздельными
+// проходами и посчитал компенсацию только для той стороны, которая
+// действительно потребовала её (см. комментарий у ensureScrollListener).
+const WINDOW_SIZE = 100;      // размер окна при первом открытии чата/прыжке
+const MAX_WINDOW_SIZE = 100;  // общий потолок размера окна при скролле
+const GROW_STEP = 30;         // на сколько строк раздвигаем/подрезаем окно у края
 const EDGE_THRESHOLD_PX = 600; // "у края" - за сколько px до конца окна подгружаем добавку
 
 const windowByChat = new Map(); // chatJid -> { top, bottom } (индексы в plan)
@@ -84,7 +94,8 @@ export function clampWindowToLength(chatJid, planLength){
 // Смотрит только на три агрегатных числа (scrollTop/scrollHeight/clientHeight),
 // которые браузер и так считает сам - ни одного obeisance к offsetHeight
 // отдельных строк. 'up'/'down'/null - вызывающий код (render-messages.js)
-// решает, нужна ли компенсация scrollTop (нужна только для 'up').
+// решает, как смонтировать результат growWindowUp/growWindowDown (обе
+// стороны теперь могут требовать компенсации scrollTop - см. их комментарии).
 export function growDirection(chatJid, planLength, el){
   const win = windowByChat.get(chatJid);
   if(!win) return null;
@@ -94,16 +105,41 @@ export function growDirection(chatJid, planLength, el){
   return null;
 }
 
+// Раздвигает окно вверх (к старым сообщениям) на GROW_STEP и, если итоговый
+// размер превысил MAX_WINDOW_SIZE, подрезает СНИЗУ на столько же строк -
+// старый хвост выгружается из DOM (см. reconcileKeyedChildren).
+// Возвращает { pre, win }: pre - окно сразу после раздвижки, но ДО подрезки
+// низа; win - итоговое (уже с подрезкой). Раздельно, чтобы вызывающий код
+// смонтировал сначала pre (вставка сверху - требует компенсации scrollTop),
+// затем win (подрезка снизу, за пределами видимой области - компенсации не
+// требует) двумя проходами, не смешивая противоположные по знаку изменения
+// scrollHeight в одном измерении "до/после".
 export function growWindowUp(chatJid, planLength){
   const win = windowByChat.get(chatJid);
-  if(!win) return openWindowAtEnd(chatJid, planLength);
-  win.top = Math.max(0, win.top - GROW_STEP);
-  return clamp(win, planLength);
+  if(!win){ const w = openWindowAtEnd(chatJid, planLength); return { pre: w, win: w }; }
+  const pre = { top: Math.max(0, win.top - GROW_STEP), bottom: win.bottom };
+  win.top = pre.top;
+  if(win.bottom - win.top + 1 > MAX_WINDOW_SIZE){
+    win.bottom = win.top + MAX_WINDOW_SIZE - 1;
+  }
+  clamp(win, planLength);
+  return { pre, win };
 }
 
+// Симметрично growWindowUp, но вниз (к новым сообщениям): раздвигает низ,
+// а при превышении MAX_WINDOW_SIZE подрезает СВЕРХУ - выгрузка старой
+// головы окна теперь требует такой же компенсации scrollTop, как вставка
+// сверху (контент выше видимой области исчезает - оставшееся "подъезжает"
+// вверх, если не компенсировать). pre здесь - окно сразу после раздвижки
+// низа, ДО подрезки верха, по той же причине раздельного монтирования.
 export function growWindowDown(chatJid, planLength){
   const win = windowByChat.get(chatJid);
-  if(!win) return openWindowAtEnd(chatJid, planLength);
-  win.bottom = Math.min(planLength - 1, win.bottom + GROW_STEP);
-  return clamp(win, planLength);
+  if(!win){ const w = openWindowAtEnd(chatJid, planLength); return { pre: w, win: w }; }
+  const pre = { top: win.top, bottom: Math.min(planLength - 1, win.bottom + GROW_STEP) };
+  win.bottom = pre.bottom;
+  if(win.bottom - win.top + 1 > MAX_WINDOW_SIZE){
+    win.top = win.bottom - MAX_WINDOW_SIZE + 1;
+  }
+  clamp(win, planLength);
+  return { pre, win };
 }

@@ -260,9 +260,10 @@ function ensureScrollListener(el){
   el.addEventListener('scroll', () => {
     // Чистая прокрутка без изменения данных - проверяем только "у края ли
     // мы" (growDirection - три числа, без перемера строк) и, если да,
-    // раздвигаем окно на GROW_STEP строк. Если не у края - вообще ничего не
-    // делаем, ни единой DOM-операции. rAF схлопывает частые события scroll
-    // в максимум один пересчёт на кадр.
+    // раздвигаем окно на GROW_STEP строк (при превышении MAX_WINDOW_SIZE -
+    // с подрезкой противоположного края, см. virtual-list.js). Если не у
+    // края - вообще ничего не делаем, ни единой DOM-операции. rAF схлопывает
+    // частые события scroll в максимум один пересчёт на кадр.
     if(_scrollScheduled) return;
     _scrollScheduled = true;
     requestAnimationFrame(() => {
@@ -273,20 +274,41 @@ function ensureScrollListener(el){
       if(!plan.length) return;
       const dir = growDirection(chatJid, plan.length, messagesEl);
       if(!dir) return;
-      const win = dir === 'up' ? growWindowUp(chatJid, plan.length) : growWindowDown(chatJid, plan.length);
-      const prevScrollHeight = messagesEl.scrollHeight;
-      mountWindow(messagesEl, chatJid, plan, win);
+
+      // Раздвижка И подрезка противоположного края монтируются ДВУМЯ
+      // раздельными проходами (а не одним mountWindow на итоговое окно) -
+      // иначе разница scrollHeight "до/после" смешала бы вставку выше
+      // видимой области (нужна компенсация) с подрезкой хвоста ниже неё
+      // (компенсации не требует) в одно число и компенсация вышла бы неверной.
       if(dir === 'up'){
-        // Строки вставлены ВЫШЕ видимой области - без компенсации то, что
-        // уже было на экране, "уедет" вниз на высоту вставленного. Единственная
-        // компенсация во всём модуле - и это один расчёт (разница scrollHeight
-        // до/после вставки), а не замер каждой строки по отдельности.
+        const { pre, win } = growWindowUp(chatJid, plan.length);
+        // Фаза 1: вставка строк ВЫШЕ видимой области - без компенсации то,
+        // что уже было на экране, "уедет" вниз на высоту вставленного.
+        const prevScrollHeight = messagesEl.scrollHeight;
+        mountWindow(messagesEl, chatJid, plan, pre);
         const inserted = messagesEl.scrollHeight - prevScrollHeight;
         if(inserted > 0) messagesEl.scrollTop += inserted;
+        // Фаза 2: подрезка хвоста СНИЗУ (если размер окна превысил лимит) -
+        // эти строки ниже видимой области, компенсация не нужна.
+        if(win.bottom !== pre.bottom){
+          mountWindow(messagesEl, chatJid, plan, win);
+        }
+      } else {
+        const { pre, win } = growWindowDown(chatJid, plan.length);
+        // Фаза 1: довставка строк НИЖЕ видимой области - браузер ничего не
+        // сдвигает, когда контент появляется под текущей позицией просмотра.
+        mountWindow(messagesEl, chatJid, plan, pre);
+        // Фаза 2: выгрузка головы окна СВЕРХУ (если размер превысил лимит) -
+        // эти строки ВЫШЕ видимой области, значит без компенсации оставшийся
+        // контент "подъедет" вверх на их высоту - компенсируем так же, как
+        // при вставке сверху, только с обратным знаком.
+        if(win.top !== pre.top){
+          const prevScrollHeight = messagesEl.scrollHeight;
+          mountWindow(messagesEl, chatJid, plan, win);
+          const removed = prevScrollHeight - messagesEl.scrollHeight;
+          if(removed > 0) messagesEl.scrollTop -= removed;
+        }
       }
-      // dir === 'down': довставка ниже видимой области компенсации не
-      // требует - браузер ничего не сдвигает, когда контент появляется под
-      // текущей позицией просмотра.
       if(_afterRender) _afterRender();
     });
   }, {passive:true});

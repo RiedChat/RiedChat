@@ -29,8 +29,8 @@ export async function fetchAndDecrypt(aesgcmUrl, onProgress, allowedHosts, sende
   // net/upload.js) - для расшифровки самого файла оно не нужно, отрезаем
   // его по разделителю ';t=', который не входит в hex-алфавит.
   const fragment = aesgcmUrl.slice(hashIdx + 1);
-  const thumbSepIdx = fragment.indexOf(';t=');
-  const hex = thumbSepIdx === -1 ? fragment : fragment.slice(0, thumbSepIdx);
+  const sepIdx = fragment.search(/;(?:t|n)=/);
+  const hex = sepIdx === -1 ? fragment : fragment.slice(0, sepIdx);
   const httpsUrl = 'https://' + withoutScheme;
 
   // Собеседник (или подменивший его MITM) сам формирует aesgcm://-ссылку и

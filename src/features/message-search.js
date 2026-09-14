@@ -66,12 +66,28 @@ export function wireMessageSearch(){
 
   const closeSearchModal = wireModalDismiss('search-modal', 'search-modal-close');
   btn.addEventListener('click', openSearchModal);
-  $('search-modal-input').addEventListener('input', function(){ renderCurrentResults(this.value); });
+
+  // Дебаунс инпута: без него каждое нажатие клавиши гоняло полный O(n)
+  // проход по S.messages[activeChat] (+ построение и вставку HTML списка
+  // результатов) - на длинной истории это заметный лаг при быстром наборе.
+  // 150ms - обычная точка отсчёта для search-as-you-type (Telegram Web
+  // ставит похожий порядок), быстрый набор схлопывается в один пересчёт,
+  // разница с "живым" откликом на глаз не ощущается.
+  let debounceTimer = null;
+  $('search-modal-input').addEventListener('input', function(){
+    const value = this.value;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => renderCurrentResults(value), 150);
+  });
 
   $('search-filters').addEventListener('click', (e) => {
     const fbtn = e.target.closest('.search-filter-btn');
     if(!fbtn) return;
     setActiveFilter(fbtn.dataset.filter);
+    // Смена фильтра - не набор текста, применяем сразу, без задержки, и
+    // отменяем висящий отложенный пересчёт от предыдущего инпута, чтобы он
+    // не перетёр результат уже после переключения фильтра.
+    clearTimeout(debounceTimer);
     renderCurrentResults($('search-modal-input').value);
   });
 

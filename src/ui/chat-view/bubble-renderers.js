@@ -89,11 +89,17 @@ function renderMediaOnlyBubble(m, singleMedia, {lock, time, ticks, nextSeq}){
     singleMedia.kind === 'file' && !loadFileAutoDownloadEnabled()
   );
   const noteBoxClass = isNote ? 'video-note-box' : 'video-ratio-box';
-  const tapIcon = isSticker ? '🖼️' : singleMedia.kind === 'file' ? '📎' : '▶';
+  const tapIcon = isSticker ? '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#photo"></use></svg>' : singleMedia.kind === 'file' ? '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#paper-clip"></use></svg>' : '▶';
   // Имя и расширение файла (.apk/.zip/.pdf и т.п.) видны прямо в самой
   // aesgcm-ссылке ДО расшифровки - показываем их уже на плашке
   // "нажмите, чтобы загрузить", а не только после тапа (см. media-loader.js).
-  const fileName = singleMedia.kind === 'file' ? media.fileNameOf(singleMedia.url) : '';
+  // Для своих же исходящих файлов имя уже лежит прямо на сообщении (m.fileName -
+  // см. net/messaging/outgoing/send.js), взятое из file.name в момент загрузки,
+  // ДО кодирования в ссылку - используем его напрямую и не гоняем через
+  // media.fileNameOf(). Для чужих входящих (и своих же старых, отправленных до
+  // этого поля) имени на m нет - тогда, как и раньше, достаём его из самой
+  // ссылки, единственного канала, которым оно вообще могло к нам прийти.
+  const fileName = singleMedia.kind === 'file' ? (m.fileName || media.fileNameOf(singleMedia.url)) : '';
   const fileExt = singleMedia.kind === 'file' ? media.extOf(fileName).toUpperCase() : '';
   // Превью, встроенное отправителем в саму ссылку (см.
   // net/media/thumb-codec.js) - показываем СРАЗУ фоном плейсхолдера, ещё
@@ -135,7 +141,7 @@ function renderPlainImageBubble(m, singleMedia, {lock, time, ticks, nextSeq}){
     // Заглушка сама по себе не ссылка - по клику media-loader.js:loadPlainImage
     // подменяет её на настоящий <img> прямо в пузыре (см. renderMediaOnlyBubble
     // выше для того же паттерна на видео).
-    : '<span class="video-ratio-box"><span class="video-tap-load-overlay"><span class="video-tap-load-play">🖼️</span></span></span>';
+    : '<span class="video-ratio-box"><span class="video-tap-load-overlay"><span class="video-tap-load-play"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#photo"></use></svg></span></span></span>';
   // singleMedia.url приходит из тела сообщения собеседника - экранируем
   // через html, даже находясь внутри HTML-атрибута (кавычки/угловые
   // скобки в url иначе позволили бы вырваться из атрибута).
@@ -167,7 +173,15 @@ function renderTextBubble(m, {lock, time, ticks, nextSeq}){
   const edited = m.edited ? String(html`<span class="edited-tag">${t('message.edited')}</span>`) : '';
   // quoteHtml/bodyHtml уже полностью экранированы внутри formatMessageBody
   // (escapeHtml применяется там до любой подстановки медиа-плейсхолдеров).
-  const bubbleHtml = String(html`<div class="bubble">${raw(quoteHtml)}${raw(bodyHtml)}<span class="bubble-time">${raw(lock)}${raw(edited)}${raw(time)}${raw(ticks)}</span></div>`);
+  // Лог звонка (features/call/call-log.js) хранит текст с эмодзи 📞 в начале -
+  // тот же текст переиспользуется в превью ростера/уведомлениях как обычная
+  // строка, поэтому эмодзи в m.body не трогаем; здесь же, уже в отрисованном
+  // (заэкранированном) bodyHtml, подменяем ровно этот ведущий префикс на
+  // SVG-иконку звонка - сам текст (escapeHtml) эмодзи не меняет, так что
+  // подмена безопасна и не задевает остальное содержимое.
+  const callIcon = '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg call-log-icon"><use href="#call"></use></svg>';
+  const displayBodyHtml = m.call ? bodyHtml.replace(/^📞\s*/, callIcon + ' ') : bodyHtml;
+  const bubbleHtml = String(html`<div class="bubble">${raw(quoteHtml)}${raw(displayBodyHtml)}<span class="bubble-time">${raw(lock)}${raw(edited)}${raw(time)}${raw(ticks)}</span></div>`);
   const mediaList = mediaPlaceholders.map(({id, url, holdOff, kind}) => ({type: kind === 'plain-image' ? 'plain-image' : 'deferrable', id, url, holdOff}));
   // Миниатюра внутри самой цитаты (фото/видео/кружок/стикер) - отдельный тип
   // догрузки, см. ui/chat-view/media-loader.js:loadQuoteThumb и render-messages.js.

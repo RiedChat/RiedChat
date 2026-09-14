@@ -15,7 +15,20 @@
 // где нет, используем двойной requestAnimationFrame как запасной вариант.
 export function onDecodedFrame(videoEl, cb){
   if(typeof videoEl.requestVideoFrameCallback === 'function'){
-    videoEl.requestVideoFrameCallback(cb);
+    // Подстраховка: rVFC гарантированно срабатывает на новый закомпоненный
+    // кадр, но на видео, которое браузер уже и так не смог нормально
+    // прокрутить/проиграть (см. seek.js - тот же класс проблемных
+    // webm-файлов без индекса), кадр может не "закомпоноваться" вовсе, и
+    // rVFC не вызовется никогда. Без запасного таймера cb() не позвал бы
+    // grab() до общего 8-секундного предела зонда - тем же двойным rAF, что
+    // и в ветке без rVFC ниже: он не зависит от событий самого видео и почти
+    // всегда успевает отработать за пару кадров, поэтому как fallback
+    // безопасен даже если реального нового кадра и не было - drawImage()
+    // просто прочитает то, что уже сейчас лежит в текущем кадре видео.
+    let done = false;
+    const finish = () => { if(done) return; done = true; cb(); };
+    videoEl.requestVideoFrameCallback(finish);
+    setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(finish)), 1000);
   } else {
     requestAnimationFrame(() => requestAnimationFrame(cb));
   }

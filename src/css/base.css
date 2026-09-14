@@ -47,6 +47,34 @@
   --paper-70: rgba(255,255,255,.70);
 }
 *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+/* Отключаем выделение текста при долгом тапе/зажатии по всему приложению -
+   это чат-приложение, долгое нажатие используется для свайп-действий и
+   контекстных меню (см. message-select.css, swipe-gesture.js), а не для
+   выделения текста, поэтому синяя подсветка выделения и системный
+   callout-попап ("Копировать"/"Поделиться" на iOS) везде отключены.
+   Поля ввода (input/textarea/[contenteditable]) ниже явно возвращают
+   обычное поведение выделения - иначе в них было бы невозможно ни выделить,
+   ни скопировать/вставить текст. */
+html, body{
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
+}
+input, textarea, [contenteditable]{
+  -webkit-user-select:text;
+  user-select:text;
+  -webkit-touch-callout:default;
+}
+/* То же самое для картинок отдельно: без этого долгое нажатие на изображение
+   (стикер, фото в чате, аватар и т.п.) на мобильных открывает системное меню
+   "Сохранить изображение"/перетаскивание вместо ожидаемого действия приложения. */
+img{
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-touch-callout:none;
+  -webkit-user-drag:none;
+  user-drag:none;
+}
 button, [role="button"]{ outline:none; }
 button:focus, button:focus-visible{ outline:none; }
 html,body{height:100%;}

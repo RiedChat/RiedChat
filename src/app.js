@@ -25,7 +25,7 @@ import { renderChatHead, updateOmemoBadge, renderReplyBar, renderCallBanner } fr
 import { renderMessages } from './ui/chat-view/render-messages.js';
 import { _markChatRead } from './ui/chat-view/unread-tracking.js';
 import { renderRoster } from './ui/roster.js';
-import { wireResilience } from './net/connection/resilience.js';
+import { wireResilience, reconnectIfNeeded } from './net/connection/resilience.js';
 import { checkSecurityWarnings } from './ui/security-warnings.js';
 
 const S = state;
@@ -75,6 +75,16 @@ function handleAndroidBack(){
   return false;
 }
 window.__androidHandleBack = handleAndroidBack;
+
+// Вызывается из Android (MainActivity.onResume через evaluateJavascript).
+// document.visibilitychange/pageshow в WebView не гарантируют срабатывание
+// при сворачивании/разворачивании Activity (WebView остаётся attached к
+// окну), поэтому reconnectIfNeeded дополнительно триггерится явно с
+// нативной стороны при каждом onResume, а не только через события DOM.
+window.__androidResume = function(){
+  if(!$('app').classList.contains('active')) return; // ещё не залогинены
+  reconnectIfNeeded();
+};
 
 function wireEvents(){
   wireResilience();

@@ -3,7 +3,7 @@ import { state } from '../../core/state.js';
 import { renderReplyBar } from '../../ui/chat-head.js';
 import { wireSwipeGesture } from '../../ui/swipe-gesture.js';
 import { cancelEdit } from '../message-edit.js';
-import { loadSwipeReversed } from '../swipe-settings.js';
+import { loadSwipeReversed, loadBidiQuote } from '../swipe-settings.js';
 import { msgByRow } from './shared.js';
 import { startReply } from './quote.js';
 import { swipeAction } from './copy-download.js';
@@ -27,12 +27,15 @@ export function wireMessageSwipe(){
     return (kind && kind !== 'text') ? '⬇' : '⧉';
   };
 
+  // "Двунаправленная цитата" (см. features/swipe-settings.js:loadBidiQuote) -
+  // приоритетнее реверса: если включена, обе подсказки и оба колбэка -
+  // startReply, копирование/скачивание свайпом недоступно вовсе.
   wireSwipeGesture(el, '.msg-row', {
     getItem: msgByRow,
-    leftHintGlyph: (row, msg) => loadSwipeReversed() ? actionGlyph(row) : '↩',
-    rightHintGlyph: (row, msg) => loadSwipeReversed() ? '↩' : actionGlyph(row),
-    onSwipeLeft: (item, bubble) => loadSwipeReversed() ? swipeAction(item, bubble) : startReply(item, bubble),
-    onSwipeRight: (item, bubble) => loadSwipeReversed() ? startReply(item, bubble) : swipeAction(item, bubble),
+    leftHintGlyph: (row, msg) => loadBidiQuote() ? '↩' : (loadSwipeReversed() ? actionGlyph(row) : '↩'),
+    rightHintGlyph: (row, msg) => loadBidiQuote() ? '↩' : (loadSwipeReversed() ? '↩' : actionGlyph(row)),
+    onSwipeLeft: (item, bubble) => loadBidiQuote() ? startReply(item, bubble) : (loadSwipeReversed() ? swipeAction(item, bubble) : startReply(item, bubble)),
+    onSwipeRight: (item, bubble) => loadBidiQuote() ? startReply(item, bubble) : (loadSwipeReversed() ? startReply(item, bubble) : swipeAction(item, bubble)),
   });
 
   const replyBar = $('reply-bar');
