@@ -56,6 +56,11 @@ Vite, ES-модули, [Strophe.js](https://strophe.im/) (XMPP, грузится
 собирать самому нужно только для модификаций или своего хостинга, см.
 [docs/INSTALL.md](./docs/INSTALL.md).
 
+Нативные платформы:
+ - Android: [github.com/RiedChat/RiedChat-Android](https://github.com/RiedChat/RiedChat-Android)
+
+Другие платформы появятся по мере развития проекта.
+
 **XMPP-сервер.** Нужен в любом случае: требования к нему и пример конфига -
 в [docs/SERVER_SETUP.md](./docs/SERVER_SETUP.md).
 

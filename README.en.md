@@ -50,13 +50,18 @@ CDN), [libsignal-protocol](https://github.com/signalapp/libsignal-protocol-javas
 
 ## Installation
 
-**Client.** A ready-made build is at
-[riedchat.github.io](https://riedchat.github.io/); build it yourself only
-for modifications or your own hosting, see
+**Client.** A prebuilt version is available at [riedchat.github.io/RiedChat](https://riedchat.github.io/RiedChat);
+building it yourself is only needed for modifications or self-hosting, see
 [docs/INSTALL.en.md](./docs/INSTALL.en.md).
 
-**XMPP server.** Required either way: server requirements and a sample
-config are in [docs/SERVER_SETUP.en.md](./docs/SERVER_SETUP.en.md).
+Native wrappers:
+
+- Android: [github.com/RiedChat/RiedChat-Android](https://github.com/RiedChat/RiedChat-Android)
+
+Other platforms may follow as the project grows.
+
+**XMPP server.** Required either way: server requirements and a sample config
+are in [docs/SERVER_SETUP.en.md](./docs/SERVER_SETUP.en.md).
 
 ## Security
 
