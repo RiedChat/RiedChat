@@ -140,7 +140,7 @@
 /* Ссылка-превью уже скачанного и расшифрованного generic-файла
    (см. media-loader.js:loadEncryptedMedia) - имя может быть длинным
    (например, полное имя .apk), обрезаем многоточием в один ряд. */
-.file-download-link{ display:flex; align-items:center; gap:6px; max-width:100%; }
+.file-download-link{ display:flex; align-items:center; gap:6px; max-width:100%; line-height:1.2; }
 .file-download-name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* Время/замок поверх фото или видео - без сплошной чёрной плашки (она выглядела
