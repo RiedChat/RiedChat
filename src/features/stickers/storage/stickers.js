@@ -4,6 +4,7 @@ import { uuid } from '../../../core/uuid.js';
 import { db, reqToPromise, txDone } from './db.js';
 import { stickerKindOf, MAX_STICKER_BYTES } from './types.js';
 import { t } from '../../../i18n/t.js';
+import { isQuotaError } from '../../../core/storage.js';
 
 export async function listStickers(packId){
   const conn = await db();
@@ -24,7 +25,12 @@ export async function addSticker(packId, file){
   };
   const tx = conn.transaction('stickers', 'readwrite');
   tx.objectStore('stickers').put(sticker);
-  await txDone(tx);
+  try{
+    await txDone(tx);
+  }catch(e){
+    if(isQuotaError(e)) throw new Error(t('history.noSpace'));
+    throw e;
+  }
   return sticker;
 }
 

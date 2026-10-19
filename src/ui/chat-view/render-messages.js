@@ -96,7 +96,17 @@ function buildRowPlan(chatJid, list, firstUnreadIdx){
   const plan = [];
   let unreadRowIndex = -1;
   let lastDayKey = null;
+  // Ключ строки сообщения - по m.id, а НЕ по индексу: при удалении сообщения
+  // индексы сдвигаются, и с ключами 'msg:<idx>' diff переиспользовал узлы со
+  // старым содержимым, а убирал последний узел вместо удалённого (визуально
+  // исчезало не то сообщение; после перезахода список строился заново и
+  // выглядел верно). Дубль id/пустой id - откат на индекс, чтобы ключи
+  // оставались уникальными.
+  const seenIds = new Set();
   list.forEach((m, mIdx) => {
+    let idTok = m.id ? 'id:' + m.id : 'idx:' + mIdx;
+    if(seenIds.has(idTok)) idTok += '#' + mIdx;
+    seenIds.add(idTok);
     const dayKey = localDayKey(m.time);
     if(dayKey !== lastDayKey){
       plan.push({ key: chatJid + '|day:' + dayKey, kind: 'day', time: m.time });
@@ -111,9 +121,9 @@ function buildRowPlan(chatJid, list, firstUnreadIdx){
     // явный признак возможной MITM-подмены станзы, поэтому отдельная заметная
     // плашка прямо над сообщением (одной иконки 🔓 в самом пузыре недостаточно).
     if(m.downgraded && !m.out){
-      plan.push({ key: chatJid + '|downgrade:' + mIdx, kind: 'downgrade' });
+      plan.push({ key: chatJid + '|downgrade:' + idTok, kind: 'downgrade' });
     }
-    plan.push({ key: chatJid + '|msg:' + mIdx, kind: 'msg', m, mIdx });
+    plan.push({ key: chatJid + '|msg:' + idTok, kind: 'msg', m, mIdx });
   });
   return { plan, unreadRowIndex };
 }
@@ -233,6 +243,16 @@ function mountWindow(el, chatJid, plan, win){
   }
 
   const { mounted, created } = reconcileKeyedChildren(el, rows);
+
+  // Ключи теперь стабильны (по id), а индекс сообщения в списке меняется
+  // при удалении - переиспользованным узлам обновляем data-idx, по нему
+  // работают выбор, свайп, правка, цитаты и точечные патчи.
+  for(let i = win.top; i <= win.bottom; i++){
+    const planRow = plan[i];
+    if(planRow.kind !== 'msg' || created.has(planRow.key)) continue;
+    const node = mounted.get(planRow.key);
+    if(node && node.dataset.idx !== String(planRow.mIdx)) node.dataset.idx = planRow.mIdx;
+  }
 
   for(const key of created){
     const info = mediaByKey.get(key);

@@ -27,6 +27,7 @@ import './core/state.js';
 import './core/dom-utils.js';
 import './core/safe-html.js';
 import './core/storage.js';
+import './core/persist-storage.js';
 import './features/theme-settings.js';
 import './core/last-seen-storage.js';
 import './core/uuid.js';

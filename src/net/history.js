@@ -19,6 +19,8 @@ import * as historyMediaCache from './history/media-cache.js';
 import { getHistoryStorageKey, forgetHistoryStorageKey } from '../crypto/omemo-vault.js';
 import { promptVaultPassphrase } from '../ui/vault-modal.js';
 import { sendCacheKeyToWorker } from './media/worker-client.js';
+import { isQuotaError } from '../core/storage.js';
+import { requestPersistentStorage } from '../core/persist-storage.js';
 
 // saveThread() раньше писало на диск (шифрование AES-GCM ВСЕГО массива
 // сообщений треда + IndexedDB put) синхронно на КАЖДОЕ событие - новое
@@ -73,6 +75,19 @@ export const history = {
       : t('history.saveFailed', {context, detail: e && e.message ? e.message : e}));
   },
 
+  // Запись треда с защитой от переполнения: переписка важнее кэша медиа.
+  // При QuotaExceededError сносим кэш медиа (он перекачивается) и повторяем.
+  async _writeThread(jid, messages){
+    try{
+      return await historyThreads.saveThread(this.db, jid, messages, this.key);
+    }catch(e){
+      if(!isQuotaError(e)) throw e;
+      debugLog('[history] квота при записи треда "' + jid + '" - очищаем кэш медиа и повторяем');
+      await historyMediaCache.clearMediaCache(this.db).catch(() => {});
+      return historyThreads.saveThread(this.db, jid, messages, this.key);
+    }
+  },
+
   async init(bareJid){
     // Новый аккаунт/пересоздание соединения - все отложенные записи,
     // запланированные ДО этого, были для прошлого db/key и писать их
@@ -80,6 +95,10 @@ export const history = {
     this._pendingSaves.forEach(p => { if(p.timer) clearTimeout(p.timer); });
     this._pendingSaves.clear();
     this._saveGeneration++;
+
+    // Без persistent storage браузер при нехватке места стирает ВЕСЬ
+    // источник целиком (IndexedDB истории + стикеры + localStorage).
+    requestPersistentStorage();
 
     this.dbName = dbNameFor(bareJid);
     this.db = await openDb(bareJid);
@@ -141,7 +160,7 @@ export const history = {
     const pending = this._pendingSaves.get(jid);
     if(pending && pending.timer) clearTimeout(pending.timer);
     this._pendingSaves.delete(jid);
-    return historyThreads.saveThread(this.db, jid, messages, this.key).then(
+    return this._writeThread(jid, messages).then(
       () => { if(pending) pending.waiters.forEach(w => w.resolve()); },
       (e) => { if(pending) pending.waiters.forEach(w => w.reject(e)); throw e; },
     );
@@ -169,7 +188,7 @@ export const history = {
       pending.waiters.forEach(w => w.resolve());
       return Promise.resolve();
     }
-    return historyThreads.saveThread(this.db, jid, pending.messages, this.key).then(
+    return this._writeThread(jid, pending.messages).then(
       () => pending.waiters.forEach(w => w.resolve()),
       (e) => { pending.waiters.forEach(w => w.reject(e)); throw e; },
     );

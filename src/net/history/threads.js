@@ -46,11 +46,35 @@ export function loadAll(db, key){
         result[jid] = await decryptOmemoValue(key, val);
       }catch(e){
         debugLog('[history] не удалось расшифровать тред "' + jid + '": ' + (e && e.message ? e.message : e));
-        result[jid] = [];
+        // НЕ подставляем []: пустой массив в S.messages при следующем
+        // saveThread() перезаписал бы на диске зашифрованную переписку
+        // пустым списком. Сохраняем сырую запись в 'meta' под ключом
+        // corrupt:<jid> (если уже есть - не трогаем), тред пропускаем.
+        await backupUndecryptable(db, jid, val);
       }
     }
     return result;
   });
+}
+
+// Резервная копия нечитаемой записи треда (неверный ключ, повреждение) -
+// чтобы последующая перезапись треда новыми сообщениями не уничтожила
+// единственную копию. Не шифруется повторно: это уже зашифрованная запись.
+async function backupUndecryptable(db, jid, rawRecord){
+  try{
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('meta', 'readwrite');
+      const store = tx.objectStore('meta');
+      const bkKey = 'corrupt:' + jid;
+      const getReq = store.get(bkKey);
+      getReq.onsuccess = () => { if(getReq.result === undefined) store.put(rawRecord, bkKey); };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }catch(e){
+    debugLog('[history] не удалось сохранить резервную копию треда "' + jid + '": ' + (e && e.message ? e.message : e));
+  }
 }
 
 // Перезаписывает весь массив сообщений для конкретного jid (fire-and-forget со стороны вызывающего).
@@ -62,6 +86,7 @@ export async function saveThread(db, jid, messages, key){
     tx.objectStore('threads').put(blob, jid);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
   });
 }
 

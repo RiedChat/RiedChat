@@ -16,11 +16,55 @@ export function lsGet(key, fallback){
   }catch(e){ return fallback; }
 }
 
+// Кэши, которые можно безболезненно потерять: при нехватке места в
+// localStorage они удаляются первыми, чтобы освободить место под важные
+// записи (vault-блок с data-key'ями истории, настройки). Аватары контактов
+// перекачиваются из vCard при следующем presence.
+const EVICTABLE_LS_PREFIXES = ['xmppContactAvatar_'];
+
+export function isQuotaError(e){
+  if(!e) return false;
+  return e.name === 'QuotaExceededError'
+    || e.name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    || e.code === 22 || e.code === 1014
+    || /quota/i.test(e.message || '');
+}
+
+function freeLocalStorageSpace(exceptKey){
+  let freed = false;
+  for(let i = localStorage.length - 1; i >= 0; i--){
+    const k = localStorage.key(i);
+    if(k && k !== exceptKey && EVICTABLE_LS_PREFIXES.some(p => k.startsWith(p))){
+      localStorage.removeItem(k);
+      freed = true;
+    }
+  }
+  return freed;
+}
+
+// Пишет в localStorage; при QuotaExceededError удаляет вытесняемые кэши и
+// повторяет запись один раз. Бросает исключение, если записать не удалось.
+function writeWithEviction(key, value){
+  const raw = JSON.stringify(value);
+  try{
+    localStorage.setItem(key, raw);
+  }catch(e){
+    if(!isQuotaError(e) || !freeLocalStorageSpace(key)) throw e;
+    localStorage.setItem(key, raw);
+  }
+}
+
+// Best-effort: возвращает true/false - записалось или нет. Вызывающий код,
+// для которого потеря записи критична, ОБЯЗАН проверять результат.
 export function lsSet(key, value){
-  // Тот же случай, что в lsGet выше: приватный режим/квота - пишем
-  // best-effort, без localStorage приложение продолжает работать, просто
-  // без сохранения этого конкретного значения.
-  try{ localStorage.setItem(key, JSON.stringify(value)); }catch(e){}
+  try{ writeWithEviction(key, value); return true; }
+  catch(e){ return false; }
+}
+
+// Для критичных данных (vault-блок с ключами): бросает исключение при
+// неудаче, чтобы никто не считал данные сохранёнными, когда это не так.
+export function lsSetStrict(key, value){
+  writeWithEviction(key, value);
 }
 
 export function lsRemove(key){

@@ -70,7 +70,16 @@ export function connect(wsUrl, jid, pass, rememberMe){
       } else {
         await forgetPersistedAccount();
       }
-      await flushVaultBlob((isSetup) => promptVaultPassphrase(isSetup));
+      try{
+        await flushVaultBlob((isSetup) => promptVaultPassphrase(isSetup));
+      }catch(e){
+        // localStorage переполнен/недоступен - ключи не сохранены на диск.
+        // Логин продолжаем, но history.init() ниже не получит ключ истории
+        // (getHistoryStorageKey повторит flush и бросит) - историю на диск
+        // в этой сессии не пишем, чтобы не зашифровать её потерянным ключом.
+        debugLog('[vault] не удалось записать vault-блок: ' + (e && e.message ? e.message : e));
+        toast(t('connection.saveAccountFailed', {detail: e && e.message ? e.message : e}));
+      }
       onLoggedIn();
     }
   });

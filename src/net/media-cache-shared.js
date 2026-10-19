@@ -13,7 +13,25 @@
 // раз через postMessage, см. net/media/worker-client.js).
 import { encryptCacheEntry, decryptCacheEntry } from './media-cache-crypto.js';
 
-export const MEDIA_CACHE_MAX_BYTES = 300 * 1024 * 1024; // 300 МБ на аккаунт
+export const MEDIA_CACHE_MAX_BYTES = 300 * 1024 * 1024; // 300 МБ на аккаунт - верхняя граница
+const MEDIA_CACHE_QUOTA_SHARE = 0.4; // не больше 40% квоты источника (остальное - история, стикеры, OMEMO)
+
+// Реальный лимит: min(300 МБ, 40% квоты браузера). На устройствах с малой
+// квотой фиксированные 300 МБ забивали хранилище целиком, и браузер
+// сносил весь источник (историю и стикеры вместе с кэшем).
+async function mediaCacheLimit(){
+  try{
+    if(typeof navigator !== 'undefined' && navigator.storage && navigator.storage.estimate){
+      const { quota } = await navigator.storage.estimate();
+      if(quota) return Math.min(MEDIA_CACHE_MAX_BYTES, Math.floor(quota * MEDIA_CACHE_QUOTA_SHARE));
+    }
+  }catch(e){}
+  return MEDIA_CACHE_MAX_BYTES;
+}
+
+function isQuota(e){
+  return !!e && (e.name === 'QuotaExceededError' || /quota/i.test(e.message || ''));
+}
 
 // Запись на диске: {iv, data (зашифрованное содержимое), kind, size, ts} -
 // ts обновляется при каждом чтении, чтобы вытеснение (evictMediaCache)
@@ -59,18 +77,31 @@ export function hasMediaEntry(db, url){
 
 export async function putMediaEntry(db, url, blob, kind, key){
   const enc = await encryptCacheEntry(key, blob);
-  return new Promise((resolve, reject) => {
+  const write = () => new Promise((resolve, reject) => {
     const tx = db.transaction('mediaCache', 'readwrite');
     tx.objectStore('mediaCache').put({ iv: enc.iv, data: enc.data, kind, size: blob.size, ts: Date.now() }, url);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
   });
+  try{
+    await write();
+  }catch(e){
+    // Кэш медиа - best-effort и восстанавливаем (перекачаем). Квоту не
+    // пробрасываем наверх: освобождаем место и пробуем один раз; не вышло -
+    // просто не кэшируем. Место нужно переписке и стикерам, не кэшу.
+    if(!isQuota(e)) throw e;
+    try{ await evictMediaCache(db, 0.5); await write(); }catch(e2){}
+  }
 }
 
 // Вытесняет самые давно использованные записи, пока суммарный размер
 // не уложится в лимит. Вызывается в фоне после каждой записи - не блокирует рендер.
 // Работает только с метаданными (size/ts), расшифровка не нужна.
-export function evictMediaCache(db){
+// shrinkTo (0..1) - необязательный коэффициент: вытеснять, пока кэш не
+// станет меньше shrinkTo * лимита (используется при нехватке места).
+export async function evictMediaCache(db, shrinkTo){
+  const limit = Math.floor((await mediaCacheLimit()) * (shrinkTo || 1));
   return new Promise((resolve, reject) => {
     const tx = db.transaction('mediaCache', 'readwrite');
     const store = tx.objectStore('mediaCache');
@@ -84,9 +115,9 @@ export function evictMediaCache(db){
         total += cur.value.size || 0;
         cur.continue();
       } else {
-        if(total > MEDIA_CACHE_MAX_BYTES){
+        if(total > limit){
           entries.sort((a, b) => a.ts - b.ts); // старые (давно не использованные) - первыми
-          let over = total - MEDIA_CACHE_MAX_BYTES;
+          let over = total - limit;
           for(const e of entries){
             if(over <= 0) break;
             store.delete(e.key);

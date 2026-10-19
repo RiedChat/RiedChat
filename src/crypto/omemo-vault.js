@@ -27,7 +27,7 @@
 // из vault-блока, он живёт в памяти вкладки как non-extractable CryptoKey
 // (memCache) и им уже без каких-либо промптов шифруется/расшифровывается
 // каждая запись OMEMO kv.
-import { lsGet, lsSet, lsRemove } from '../core/storage.js';
+import { lsGet, lsSetStrict, lsRemove } from '../core/storage.js';
 import { vault } from './vault.js';
 import { state } from '../core/state.js';
 import { debugLog } from '../core/debug-log.js';
@@ -79,7 +79,12 @@ export async function flushVaultBlob(passphraseProvider){
   await vault.ensureSetup(null, passphraseProvider);
   const key = await vault.unlock(passphraseProvider);
   const blob = await vault.encrypt(key, state.vaultBlob);
-  lsSet(LS_KEY, blob);
+  // lsSetStrict бросает при неудаче (квота localStorage). dirty сбрасывается
+  // только после успешной записи: раньше при переполненном localStorage
+  // data-key истории жил лишь в памяти, а зашифрованная им история
+  // оставалась на диске - после перезапуска ключ генерировался заново,
+  // расшифровка падала и переписка обнулялась.
+  lsSetStrict(LS_KEY, blob);
   dirty = false;
 }
 
