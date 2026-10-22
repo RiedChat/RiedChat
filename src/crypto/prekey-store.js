@@ -1,54 +1,29 @@
-// ===================== crypto/prekey-store.js =====================
-// Хранение одноразовых preKey и signedPreKey (libsignal SessionBuilder
-// читает/пишет их через эти методы при установке новой сессии).
-import { bytes as B } from './bytes.js';
+import * as B from './bytes.js';
 
-export class PreKeyStore{
-  constructor(idb, ns){
-    this.idb = idb;
-    this.ns = ns; // 'omemo:' + bareJid + ':'
-  }
-
-  // ---- prekeys ----
-  async loadPreKey(keyId){
-    const v = await this.idb.get(this.ns + 'preKey:' + keyId);
+const keyPairMethods = (kind) => ({
+  async load(id){
+    const v = await this._get(kind, id);
     return v ? B.unpackKeyPair(v) : undefined;
-  }
-  async storePreKey(keyId, keyPair){
-    await this.idb.set(this.ns + 'preKey:' + keyId, B.packKeyPair(keyPair));
-  }
-  async removePreKey(keyId){
-    await this.idb.del(this.ns + 'preKey:' + keyId);
-  }
-  // Сколько одноразовых prekeys ещё не израсходовано - нужно
-  // omemo/state.js:replenishPreKeysIfNeeded, чтобы решить, пора ли
-  // догенерировать новые.
-  async countPreKeys(){
-    const keys = await this.idb.keys(this.ns + 'preKey:');
-    return keys.length;
-  }
-  // Максимальный уже использованный (в т.ч. когда-то опубликованный, но с
-  // тех пор израсходованный и удалённый) id prekey - нужен как фолбэк для
-  // выбора id следующей пачки, если ещё нет meta-счётчика nextPreKeyId
-  // (например, аккаунт создан до появления пополнения prekeys). Берём max
-  // среди ЕЩЁ ХРАНЯЩИХСЯ ключей - этого достаточно, чтобы не переиспользовать
-  // id ключа, который прямо сейчас может быть опубликован и не использован.
-  async maxPreKeyId(){
-    const prefix = this.ns + 'preKey:';
-    const keys = await this.idb.keys(prefix);
-    if(!keys.length) return 0;
-    return Math.max(...keys.map(k => parseInt(k.slice(prefix.length), 10)));
-  }
+  },
+  store(id, keyPair){ return this._set(kind, id, B.packKeyPair(keyPair)); },
+  remove(id){ return this._del(kind, id); },
+});
 
-  // ---- signed prekey ----
-  async loadSignedPreKey(keyId){
-    const v = await this.idb.get(this.ns + 'signedPreKey:' + keyId);
-    return v ? B.unpackKeyPair(v) : undefined;
-  }
-  async storeSignedPreKey(keyId, keyPair){
-    await this.idb.set(this.ns + 'signedPreKey:' + keyId, B.packKeyPair(keyPair));
-  }
-  async removeSignedPreKey(keyId){
-    await this.idb.del(this.ns + 'signedPreKey:' + keyId);
-  }
-}
+const preKey = keyPairMethods('preKey');
+const signedPreKey = keyPairMethods('signedPreKey');
+
+export const preKeyMethods = {
+  loadPreKey: preKey.load,
+  storePreKey: preKey.store,
+  removePreKey: preKey.remove,
+  loadSignedPreKey: signedPreKey.load,
+  storeSignedPreKey: signedPreKey.store,
+  removeSignedPreKey: signedPreKey.remove,
+
+  async listPreKeyIds(){
+    const prefix = this._k('preKey');
+    return (await this.idb.keys(prefix)).map(k => parseInt(k.slice(prefix.length), 10));
+  },
+  async countPreKeys(){ return (await this.listPreKeyIds()).length; },
+  async maxPreKeyId(){ return Math.max(0, ...(await this.listPreKeyIds())); },
+};

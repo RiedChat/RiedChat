@@ -1,63 +1,36 @@
 // ===================== net/upload/encrypt.js =====================
-// XEP-0454 (OMEMO Media Sharing): решение, шифровать ли вложение, и само
-// AES-256-GCM шифрование. Чисто про крипто/память - ничего не знает про
-// XHR/slot/очередь загрузок.
-import { bytes } from '../../crypto/bytes.js';
+// XEP-0454 (OMEMO Media Sharing): AES-256-GCM шифрование вложения. Только крипто/память;
+// XHR/slot/очередь - в других модулях.
 import { debugLog } from '../../core/debug-log.js';
+import * as bytes from '../../crypto/bytes.js';
 
 const GCM_TAG_LEN = 16;
 
-// Шифрование по XEP-0454 сейчас делается не потоково: весь файл читается в
-// память ОДНИМ ArrayBuffer'ом (file.arrayBuffer()), а затем в памяти же лежит
-// ещё и зашифрованная копия того же размера - итого ~2x размера файла разом.
-// Для видео в сотни МБ это не проблема на "чистой" вкладке, но на вкладке,
-// где уже накопилось много памяти под историю/кэш медиа, это может дожать
-// память до OOM/зависания, из-за чего рвётся и сам WebSocket (выглядит как
-// "разрыв связи с собеседником", хотя причина не в сети). Выше этого порога
-// OMEMO-шифрование вложения отключаем и грузим файл как есть - обычный Blob
-// уходит в PUT потоково прямо с диска, без разового чтения в память.
-const MAX_E2E_ENCRYPT_BYTES = 100 * 1024 * 1024; // 100 МБ
+// Шифрование не потоковое: файл целиком в памяти ArrayBuffer'ом + шифрованная копия = ~2x размера.
+// При большой памяти вкладки (история/кэш) это даёт OOM/зависание и обрыв WebSocket (выглядит как
+// "разрыв связи с собеседником"). Выше порога файл не отправляется (net/upload.js): без шифрования вложения не шлём.
+const MAX_E2E_ENCRYPT_BYTES = 100 * 1024 * 1024;  // 100 МБ
 
 export const uploadEncrypt = {
-  GCM_TAG_LEN,
   MAX_E2E_ENCRYPT_BYTES,
 
-  // Решает, нужно ли шифровать конкретный файл для конкретного чата.
-  decide(file, chatIsE2ECapable){
-    const skippedForSize = chatIsE2ECapable && file.size > MAX_E2E_ENCRYPT_BYTES;
-    const useE2E = chatIsE2ECapable && !skippedForSize;
-    const declaredSize = file.size + (useE2E ? GCM_TAG_LEN : 0);
-    if(skippedForSize){
-      debugLog('[upload] файл ' + file.name + ' (' + file.size + ' байт) больше ' + MAX_E2E_ENCRYPT_BYTES + ' - пропускаю OMEMO-шифрование вложения, гружу как обычную https-ссылку');
-    }
-    return {useE2E, skippedForSize, declaredSize};
-  },
+  // Размер зашифрованного blob'а (ciphertext + GCM-тег) - для запроса слота.
+  encryptedSize(file){ return file.size + GCM_TAG_LEN; },
 
-  // Шифрует файл AES-256-GCM. Возвращает {blob, keyIvHex} или {blob: file,
-  // keyIvHex: null} при ошибке - вызывающий код тогда молча уходит на
-  // обычную https-ссылку без шифрования.
+  // Шифрует AES-256-GCM. Возвращает {blob, keyIvHex}; при ошибке null - вызывающий отменяет загрузку.
   async encryptFile(file){
     try{
-      const iv = bytes.randomBytes(12); // 12 байт - рекомендованный NIST размер nonce для AES-GCM
-      const rawKey = bytes.randomBytes(32); // AES-256
-      const cryptoKey = await crypto.subtle.importKey('raw', rawKey, {name:'AES-GCM'}, false, ['encrypt']);
-      let fileBuf = await file.arrayBuffer();
-      const encrypted = await crypto.subtle.encrypt({name:'AES-GCM', iv}, cryptoKey, fileBuf);
-      fileBuf = null; // отпускаем расшифрованную копию сразу - не держим в памяти
-                       // одновременно plaintext И ciphertext дольше, чем необходимо
-      // Отдаём в xhr.send() сам ArrayBuffer, а не new Blob([encrypted]) - конструктор
-      // Blob из ArrayBuffer делает ещё одну полную копию данных в памяти, а нам тут
-      // важен каждый лишний x файла при больших вложениях.
-      const keyIvHex = bytes.bytesToHex(bytes.concat(iv, rawKey));
-      debugLog('[upload] файл зашифрован по XEP-0454 (AES-256-GCM), размер после шифрования: ' + encrypted.byteLength + ' байт (было ' + file.size + ')');
-      return {blob: encrypted, keyIvHex};
+      const rawKey = bytes.randomBytes(32);
+      const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['encrypt']);
+      const {iv, data} = await bytes.aesGcmEncrypt(key, await file.arrayBuffer());
+      return {blob: data, keyIvHex: bytes.bytesToHex(bytes.concat(iv, rawKey))};
     }catch(e){
-      debugLog('[upload] не удалось зашифровать файл для XEP-0454: ' + e.message + ' - отправляю как обычную https-ссылку без шифрования');
-      return {blob: file, keyIvHex: null};
+      debugLog('[upload] не удалось зашифровать файл для XEP-0454: ' + e.message + ' - загрузка отменена');
+      return null;
     }
   },
 
-  // Собирает aesgcm:// ссылку из обычной https get-ссылки слота.
+  // Собирает aesgcm:// ссылку из https get-ссылки слота.
   buildAesgcmLink(getUrl, keyIvHex){
     try{
       const u = new URL(getUrl);
@@ -68,6 +41,3 @@ export const uploadEncrypt = {
     }
   },
 };
-
-// uploadEncrypt потребляется только из net/upload.js (прямой import) -
-// window.App-мост здесь больше не нужен.

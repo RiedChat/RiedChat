@@ -1,75 +1,48 @@
 // ============ features/message-search/format.js ============
-// Форматирование данных для отображения в списке результатов поиска.
+// Форматирование данных для списка результатов.
+import { contactName } from '../../core/dom-utils.js';
+import { icon } from '../../core/icons.js';
 import { html, raw } from '../../core/safe-html.js';
 import { state } from '../../core/state.js';
-import { nickOf } from '../../core/dom-utils.js';
-import { fileNameOf } from './classify.js';
-import { t } from '../../i18n/t.js';
+import { collapseWs } from '../../core/text-patterns.js';
+import { t, getLocale } from '../../i18n/t.js';
+import { fileNameOf } from '../../net/media/mime-kind.js';
+import { mediaKindKey, mediaKindSymbol } from '../message-swipe/shared.js';
 
-const S = state;
-
-export function fmtTime(t){
-  return new Date(t).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+export function fmtTime(ts){
+  return new Date(ts).toLocaleString(getLocale(), {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
 }
 
-// Вырезает вокруг найденного слова короткий фрагмент текста (как в поиске
-// Telegram/WhatsApp) и оборачивает совпадение в <mark> - весь остальной
-// текст экранируется отдельно, поэтому HTML-инъекция через текст сообщения
-// здесь невозможна, несмотря на то, что <mark> вставляется напрямую.
+// Вырезает фрагмент вокруг найденного слова и оборачивает совпадение в <mark>; остальной текст экранируется отдельно, инъекция невозможна.
 export function buildSnippet(body, q){
-  const raw = String(body || '').replace(/\s+/g, ' ').trim();
-  const lower = raw.toLowerCase();
-  const i = lower.indexOf(q);
-  if(i === -1) return String(html`${raw.slice(0, 90)}`);
+  const text = collapseWs(body);
+  const i = q ? text.toLowerCase().indexOf(q) : -1;
+  if(i === -1) return String(html`${text.slice(0, 90)}`);
   const ctx = 34;
   const start = Math.max(0, i - ctx);
-  const end = Math.min(raw.length, i + q.length + ctx);
-  const before = raw.slice(start, i);
-  const match = raw.slice(i, i + q.length);
-  const after = raw.slice(i + q.length, end);
+  const end = Math.min(text.length, i + q.length + ctx);
+  const before = text.slice(start, i);
+  const match = text.slice(i, i + q.length);
+  const after = text.slice(i + q.length, end);
   return (start > 0 ? '…' : '') +
     String(html`${before}<mark>${match}</mark>${after}`) +
-    (end < raw.length ? '…' : '');
+    (end < text.length ? '…' : '');
 }
 
-export function authorLabel(m){
-  if(m && m.out) return t('common.you');
-  const c = S.roster[S.activeChat];
-  return (c && (c.nick || c.name)) || nickOf(S.activeChat);
-}
+export const authorLabel = (m) => m?.out ? t('common.you') : contactName(state.activeChat);
 
-// Символ иконки-спрайта (#photo/#smile/#camera/...) по категории/типу
-// вложения - общий для иконки-заглушки превью и текстовой подписи ниже,
-// чтобы оба места (thumbFallbackHtml/mediaLabel) не могли разойтись.
-function symbolOf(info){
-  if(info.category === 'sticker') return 'smile';
-  if(info.category === 'videonote') return 'camera-photo';
-  if(info.kind === 'video') return 'camera';
-  if(info.kind === 'audio') return 'microphone';
-  if(info.kind === 'file') return 'paper-clip';
-  return 'photo';
-}
-
-// Иконка-заглушка на время (лениво отложенной) расшифровки, либо финальная
-// подпись для типов, у которых нет визуального превью (аудио/файл).
-// Для стикеров/кружков - своя иконка (см. categoryOf в classify.js), чтобы
-// заглушка не выглядела как обычное фото/видео ещё до того, как превью догрузится.
+// Иконка-заглушка на время ленивой расшифровки или финальная подпись для типов без превью (аудио/файл).
+// У стикеров/кружков своя иконка (categoryOf в classify.js).
 export function thumbFallbackHtml(info){
-  const symbol = symbolOf(info);
-  return String(html`<span class="search-thumb-fallback"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#${symbol}"></use></svg></span>`);
+  const symbol = mediaKindSymbol(info.kind, info.category);
+  return html`<span class="search-thumb-fallback">${raw(icon(symbol))}</span>`;
 }
 
-// Текстовая подпись под превью: своя svg-иконка + локализованный текст.
-// Раньше метка бралась из message-swipe.js:mediaLabel и приходила с эмодзи
-// в начале строки ('📷 Фото' и т.п.) - здесь та же иконка, что и в
-// thumbFallbackHtml, но как svg, а не эмодзи-символ в тексте.
-export function mediaLabel(info){
-  const symbol = symbolOf(info);
-  const text = info.kind === 'file' ? fileNameOf(info.url)
-    : info.category === 'sticker' ? t('media.kindSticker')
-    : info.category === 'videonote' ? t('media.kindVideoNote')
-    : info.kind === 'video' ? t('media.kindVideo')
-    : info.kind === 'audio' ? t('media.kindAudio')
-    : t('media.kindImage');
-  return String(html`<svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg search-result-label-icon"><use href="#${symbol}"></use></svg><span>${text}</span>`);
+// Подпись под превью: svg-иконка + локализованный текст. В отличие от message-swipe/shared.js:mediaLabel (эмодзи);
+// иконка из той же таблицы KINDS, что и в thumbFallbackHtml.
+export function mediaLabelHtml(info){
+  const symbol = mediaKindSymbol(info.kind, info.category);
+  const text = info.kind === 'file' ? (fileNameOf(info.url) || t('common.fileFallbackWord'))
+    : t(mediaKindKey(info.kind, info.category));
+  return html`${raw(icon(symbol, 'search-result-label-icon'))}<span>${text}</span>`;
 }

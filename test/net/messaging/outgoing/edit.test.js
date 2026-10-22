@@ -3,16 +3,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../../../src/core/state.js', () => ({
   state: { connection: null, messages: {}, activeChat: null },
 }));
-vi.mock('../../../../src/core/uuid.js', () => ({ uuid: () => 'fixed-uuid' }));
+vi.spyOn(crypto, 'randomUUID').mockReturnValue('fixed-uuid');
 vi.mock('../../../../src/core/debug-log.js', () => ({ debugLog: vi.fn() }));
 vi.mock('../../../../src/core/dom-utils.js', () => ({ toast: vi.fn() }));
 vi.mock('../../../../src/net/history.js', () => ({
   history: { saveThread: vi.fn().mockResolvedValue(undefined), reportWriteError: vi.fn() },
 }));
 vi.mock('../../../../src/ui/chat-view/render-messages.js', () => ({ patchMessageBody: vi.fn() }));
-vi.mock('../../../../src/net/messaging/outgoing/encrypt-or-fallback.js', () => ({ encryptOrFallback: vi.fn() }));
+vi.mock('../../../../src/net/messaging/outgoing/encrypt-required.js', () => ({ encryptRequired: vi.fn() }));
 vi.mock('../../../../src/net/messaging/outgoing/stanza-body.js', () => ({ appendStanzaBody: vi.fn() }));
-vi.mock('../../../../src/net/messaging/outgoing/fallback-notify.js', () => ({ notifyEncryptionFallback: vi.fn() }));
 vi.mock('../../../../src/i18n/t.js', () => ({ t: (key) => key }));
 
 import { editMessage } from '../../../../src/net/messaging/outgoing/edit.js';
@@ -20,9 +19,7 @@ import { state } from '../../../../src/core/state.js';
 import { toast } from '../../../../src/core/dom-utils.js';
 import { history } from '../../../../src/net/history.js';
 import { patchMessageBody } from '../../../../src/ui/chat-view/render-messages.js';
-import { encryptOrFallback } from '../../../../src/net/messaging/outgoing/encrypt-or-fallback.js';
-import { appendStanzaBody } from '../../../../src/net/messaging/outgoing/stanza-body.js';
-import { notifyEncryptionFallback } from '../../../../src/net/messaging/outgoing/fallback-notify.js';
+import { encryptRequired } from '../../../../src/net/messaging/outgoing/encrypt-required.js';
 
 function fakeBuilder(){
   const calls = [];
@@ -48,7 +45,7 @@ describe('editMessage', () => {
 
     expect(res).toEqual({ sent: false });
     expect(toast).toHaveBeenCalledWith('messaging.editNotFound');
-    expect(encryptOrFallback).not.toHaveBeenCalled();
+    expect(encryptRequired).not.toHaveBeenCalled();
   });
 
   it('чужое входящее сообщение с тем же id (out:false) не считается своим - editNotFound', async () => {
@@ -59,10 +56,10 @@ describe('editMessage', () => {
     expect(toast).toHaveBeenCalled();
   });
 
-  it('encryptOrFallback вернул blocked:true - sent:false, оригинал не изменяется', async () => {
+  it('зашифровать правку не удалось - sent:false, оригинал не изменяется', async () => {
     const original = { id: 'msg-1', out: true, body: 'старый' };
     state.messages['alice@example.com'] = [original];
-    encryptOrFallback.mockResolvedValue({ blocked: true, encryptedEl: null, fallbackReason: null });
+    encryptRequired.mockResolvedValue({ encryptedEl: null, reason: 'no-devices' });
 
     const res = await editMessage('alice@example.com', 'msg-1', 'новый текст');
 
@@ -76,8 +73,7 @@ describe('editMessage', () => {
     state.messages['alice@example.com'] = [original];
     const { node, calls } = fakeBuilder();
     global.$msg = vi.fn(() => node);
-    encryptOrFallback.mockResolvedValue({ blocked: false, encryptedEl: { tagName: 'encrypted' }, fallbackReason: null });
-    appendStanzaBody.mockReturnValue(true);
+    encryptRequired.mockResolvedValue({ encryptedEl: { tagName: 'encrypted' }, reason: null });
 
     const res = await editMessage('alice@example.com', 'msg-1', 'новый текст');
 
@@ -93,8 +89,7 @@ describe('editMessage', () => {
     state.messages['alice@example.com'] = [{ id: 'msg-1', out: true, body: 'старый' }];
     const { node } = fakeBuilder();
     global.$msg = vi.fn(() => node);
-    encryptOrFallback.mockResolvedValue({ blocked: false, encryptedEl: null, fallbackReason: null });
-    appendStanzaBody.mockReturnValue(false);
+    encryptRequired.mockResolvedValue({ encryptedEl: { tagName: 'encrypted' }, reason: null });
 
     await editMessage('alice@example.com', 'msg-1', 'новый текст');
 
@@ -106,8 +101,7 @@ describe('editMessage', () => {
     state.messages['alice@example.com'] = [{ id: 'msg-0', out: true, body: 'до' }, original];
     const { node } = fakeBuilder();
     global.$msg = vi.fn(() => node);
-    encryptOrFallback.mockResolvedValue({ blocked: false, encryptedEl: null, fallbackReason: null });
-    appendStanzaBody.mockReturnValue(false);
+    encryptRequired.mockResolvedValue({ encryptedEl: { tagName: 'encrypted' }, reason: null });
 
     await editMessage('alice@example.com', 'msg-1', 'новый текст');
 
@@ -119,8 +113,7 @@ describe('editMessage', () => {
     state.activeChat = 'bob@example.com';
     const { node } = fakeBuilder();
     global.$msg = vi.fn(() => node);
-    encryptOrFallback.mockResolvedValue({ blocked: false, encryptedEl: null, fallbackReason: null });
-    appendStanzaBody.mockReturnValue(false);
+    encryptRequired.mockResolvedValue({ encryptedEl: { tagName: 'encrypted' }, reason: null });
 
     await editMessage('alice@example.com', 'msg-1', 'новый текст');
     expect(patchMessageBody).not.toHaveBeenCalled();
@@ -128,16 +121,5 @@ describe('editMessage', () => {
     state.activeChat = 'alice@example.com';
     await editMessage('alice@example.com', 'msg-1', 'ещё правка');
     expect(patchMessageBody).toHaveBeenCalledWith(0);
-  });
-
-  it('после успешной отправки вызывается notifyEncryptionFallback с полученным fallbackReason', async () => {
-    state.messages['alice@example.com'] = [{ id: 'msg-1', out: true, body: 'старый' }];
-    const { node } = fakeBuilder();
-    global.$msg = vi.fn(() => node);
-    encryptOrFallback.mockResolvedValue({ blocked: false, encryptedEl: null, fallbackReason: 'no-devices' });
-    appendStanzaBody.mockReturnValue(false);
-
-    await editMessage('alice@example.com', 'msg-1', 'новый текст');
-    expect(notifyEncryptionFallback).toHaveBeenCalledWith('no-devices');
   });
 });

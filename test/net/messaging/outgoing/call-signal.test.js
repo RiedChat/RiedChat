@@ -3,9 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../../../src/core/state.js', () => ({
   state: { connection: null },
 }));
-vi.mock('../../../../src/core/uuid.js', () => ({ uuid: () => 'fixed-uuid' }));
+vi.spyOn(crypto, 'randomUUID').mockReturnValue('fixed-uuid');
 vi.mock('../../../../src/crypto/omemo/state.js', () => ({
-  omemo: { enabled: true, ready: true, encryptFor: vi.fn(), lastEncryptFailReason: null },
+  omemo: {
+    ready: true, encryptFor: vi.fn(), lastEncryptFailReason: null,
+    encryptFailReason(){ return this.lastEncryptFailReason === 'all-devices-dead' ? 'all-devices-dead' : 'no-devices'; },
+  },
 }));
 
 import { sendCallSignal } from '../../../../src/net/messaging/outgoing/call-signal.js';
@@ -26,7 +29,6 @@ describe('sendCallSignal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     state.connection = { send: vi.fn() };
-    omemo.enabled = true;
     omemo.ready = true;
     omemo.lastEncryptFailReason = null;
     global.Strophe = { getBareJidFromJid: (jid) => jid.split('/')[0] };

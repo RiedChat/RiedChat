@@ -1,65 +1,47 @@
 // ===================== core/text-patterns.js =====================
-// Регулярки для разбора обычного текста сообщения (не xmpp-станзы): поиск
-// голых ссылок и определение "это ссылка на картинку". Раньше жили в
-// net/messaging.js как App.xmpp.URL_RE/IMG_RE, хотя единственный потребитель -
-// ui/chat-view/message-body-html.js, к транспорту сообщений отношения не имеют.
+// Регулярки разбора обычного текста сообщения: голые ссылки и ссылки на картинки (потребитель - ui/chat-view/message-body-html.js).
+
+// Схлопывает пробельные символы в один пробел и обрезает края.
+export const collapseWs = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+
+// Расширение файла по имени, в нижнем регистре и без точки ('' - если его нет).
+export const extOf = (name) =>
+  String(name || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? '';
 
 export const URL_RE = /(https?:\/\/[^\s]+)/g;
 export const IMG_RE = /\.(png|jpe?g|gif|webp)$/i;
 
-// Ведущий блок цитаты в теле сообщения-ответа: одна или несколько строк "> ...",
-// затем пустая строка-разделитель, затем сам текст (см. net/messaging/outgoing.js:
-// buildQuotedBody). Общий для message-body-html.js (рендер цитаты в пузыре) и
-// features/message-swipe.js (текст для НОВОЙ цитаты при повторном ответе) -
-// раньше second regexp дублировался, из-за чего при цитировании уже процитированного
-// сообщения второй разбор не подчищал первый и цитаты накапливались вложенно
-// ("ты > сказал > это" вместо последнего реального текста).
+// Ведущий блок цитаты в ответе: строки "> ...", пустая строка, текст (net/messaging/outgoing.js:buildQuotedBody).
+// Общий для message-body-html.js и features/message-swipe/quote.js - иначе повторное цитирование копит вложенные цитаты.
 //
-// QUOTE_MARKER - невидимый символ (zero-width space), которым buildQuotedBody
-// помечает СВОЙ блок цитаты. Без него пользователь, набравший вручную "> текст"
-// и пустую строку в поле ввода, получил бы точно такой же блок цитаты при
-// рендере - маркер не наберёшь с клавиатуры, поэтому вручную "нарисовать"
-// цитату так больше нельзя, а настоящая (по кнопке "Ответить") продолжает
-// работать как раньше.
+// QUOTE_MARKER - zero-width space, которым buildQuotedBody помечает свой блок: вручную набранный "> текст" цитатой не станет.
 export const QUOTE_MARKER = '\u200B';
-// QUOTE_ID_DELIM - необязательный невидимый блок сразу после QUOTE_MARKER,
-// оборачивающий id процитированного сообщения (тот же msg.id, что и в
-// S.messages, см. net/messaging/incoming.js/send.js). Нужен, чтобы клик по
-// цитате (features/quote-jump.js) находил ТО САМОЕ сообщение, а не любое
-// текстуально совпадающее - например, если в чате дважды подряд написали
-// одно и то же слово, старый чисто-текстовый поиск не мог их различить и
-// прыгал к ближайшему совпадению, а не обязательно к реально процитированному.
-// Опционален (id-блока может не быть): у истории, отправленной до этого
-// изменения, и у сообщений от собеседника на не обновлённом клиенте его нет -
-// для них quote-jump по-прежнему падает на старый эвристический поиск по тексту.
+// QUOTE_ID_DELIM - необязательный невидимый блок после QUOTE_MARKER с id процитированного сообщения (msg.id):
+// quote-jump (features/quote-jump.js) находит именно его, а не любое с тем же текстом. Без id (старая история,
+// старые клиенты) - поиск по тексту.
 export const QUOTE_ID_DELIM = '\u200C';
-export const QUOTE_BLOCK_RE = /^\u200B(?:\u200C([^\u200C]*)\u200C)?((?:>[^\n]*\n)+)\n([\s\S]*)$/;
+const QUOTE_BLOCK_RE = /^\u200B(?:\u200C([^\u200C]*)\u200C)?((?:>[^\n]*\n)+)\n([\s\S]*)$/;
 
-// Возвращает {author, quoted, rest, prefix, id} для тела с ведущим блоком
-// цитаты, либо null, если цитаты нет. id - id процитированного сообщения,
-// если он был встроен (см. QUOTE_ID_DELIM выше), иначе null. rest - то, что
-// остаётся ПОСЛЕ вычитания цитаты (собственно текст сообщения, без вложенных
-// "> " строк). prefix - сырой блок цитаты как он есть в теле, включая
-// QUOTE_MARKER/id-блок и завершающую пустую строку-разделитель, т.е.
-// prefix + rest всегда восстанавливает исходный rawBody - нужно, чтобы при
-// редактировании (features/message-edit.js) вернуть цитату на место, не
-// показывая её в самом поле ввода.
+// Возвращает {author, quoted, rest, prefix, id} или null, если цитаты нет. id - id процитированного сообщения
+// (см. QUOTE_ID_DELIM) либо null; rest - текст без цитаты; prefix - сырой блок цитаты (с маркером, id и пустой
+// строкой): prefix + rest = исходный rawBody, нужно для возврата цитаты при редактировании (features/message-edit.js).
 export function splitQuotedBody(rawBody){
   const body = rawBody || '';
   const match = body.match(QUOTE_BLOCK_RE);
   if(!match) return null;
-  const quoteLines = match[2].split('\n').filter(Boolean);
-  const author = (quoteLines[0] || '').replace(/^>\s?/, '').replace(/:$/, '');
-  const quoted = quoteLines.slice(1).map(l => l.replace(/^>\s?/, '')).join(' ');
-  const quoteId = match[1] ?? null;
-  const idBlock = quoteId !== null ? QUOTE_ID_DELIM + quoteId + QUOTE_ID_DELIM : '';
-  return { author, quoted, rest: match[3], prefix: QUOTE_MARKER + idBlock + match[2] + '\n', id: quoteId };
+  const [, id = null, quoteBlock, rest] = match;
+  const [authorLine, ...quoteLines] = quoteBlock
+    .split('\n')
+    .filter(Boolean)
+    .map(l => l.replace(/^>\s?/, ''));
+  return {
+    author: (authorLine || '').replace(/:$/, ''),
+    quoted: quoteLines.join(' '),
+    rest,
+    prefix: body.slice(0, body.length - rest.length),
+    id,
+  };
 }
 
-// Убирает ведущий блок цитаты, если он есть, оставляя только реальный текст
-// сообщения. Используется там, где для НОВОЙ цитаты (или превью) нужен именно
-// последний текст, а не накопленная цепочка "> ...".
-export function stripQuotedBody(rawBody){
-  const split = splitQuotedBody(rawBody);
-  return split ? split.rest : (rawBody || '');
-}
+// Тело без ведущего блока цитаты (для новой цитаты/превью нужен только последний текст).
+export const stripQuotedBody = (rawBody) => splitQuotedBody(rawBody)?.rest ?? (rawBody || '');

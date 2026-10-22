@@ -1,39 +1,28 @@
 // ============== features/message-select/delete.js ==============
-// Удаление отмеченного - ТОЛЬКО с этого устройства (перезаписываем локальную
-// историю в IndexedDB, на сервер/собеседнику ничего не отправляется - ни
-// retraction-станза, ни что-либо ещё).
+// Удаление отмеченного - только с этого устройства (перезапись локальной истории в IndexedDB, на сервер ничего не уходит).
 import { toast } from '../../core/dom-utils.js';
 import { state } from '../../core/state.js';
+import { t } from '../../i18n/t.js';
 import { history } from '../../net/history.js';
 import { renderMessages } from '../../ui/chat-view/render-messages.js';
-import { confirm } from '../../ui/modals.js';
-import { exitSelectMode } from './mode.js';
-import { t } from '../../i18n/t.js';
+import { confirmDialog } from '../../ui/confirm-modal.js';
 
-const S = state;
+import { exitSelectMode } from './mode.js';
 
 export async function deleteSelected(){
-  if(!S.selecting || S.selecting.size === 0) return;
-  const jid = S.activeChat;
+  if(!state.selecting || state.selecting.size === 0) return;
+  const jid = state.activeChat;
   if(!jid) return;
-  const ids = S.selecting;
+  const ids = state.selecting;
   const count = ids.size;
-  const ok = await confirm(
+  const ok = await confirmDialog(
     count === 1 ? t('select.deleteOneConfirm') : t('select.deleteManyConfirm', {count}),
     t('select.deleteDesc')
   );
   if(!ok) return;
-  const list = S.messages[jid] || [];
-  S.messages[jid] = list.filter(m => !(m && ids.has(m.id)));
-  try{
-    // saveThreadNow, не saveThread: это один вызов на всю пачку удалённых
-    // сообщений (не по одному на событие), дебаунсить (net/history.js)
-    // тут нечего - лишняя пауза перед exitSelectMode()/toast() ниже была
-    // бы только заметной задержкой без всякой пользы.
-    await history.saveThreadNow(jid, S.messages[jid]);
-  }catch(e){
-    history.reportWriteError(e, t('select.deletingMessagesLabel'));
-  }
+  const list = state.messages[jid] || [];
+  state.messages[jid] = list.filter(m => !(m && ids.has(m.id)));
+  await history.saveThread(jid, state.messages[jid], { now: true, context: t('select.deletingMessagesLabel') });
   exitSelectMode();
   renderMessages();
   toast(count === 1 ? t('select.oneDeleted') : t('select.manyDeleted'));

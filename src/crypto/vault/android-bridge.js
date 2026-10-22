@@ -1,13 +1,14 @@
 // ===================== crypto/vault/android-bridge.js =====================
-// android-native: мост к AndroidKeyStore (см. VaultKeystoreBridge.java).
-// Ключ живёт в AndroidKeyStore и никогда не попадает в JS вообще, наружу
-// идут только plaintext/ciphertext конкретной операции; каждая операция
-// гейтована биометрией/PIN через BiometricPrompt.CryptoObject.
+// android-native: мост к AndroidKeyStore (VaultKeystoreBridge.java). Ключ в JS не попадает,
+// наружу идут только plaintext/ciphertext операции; каждая под биометрией/PIN (BiometricPrompt.CryptoObject).
 import { debugLog } from '../../core/debug-log.js';
-import { uuid } from '../../core/uuid.js';
 import { t } from '../../i18n/t.js';
 
-const ANDROID_BRIDGE_TIMEOUT_MS = 30000; // биометрия/PIN может ждать ввода пользователя дольше обычного таймаута
+const ANDROID_BRIDGE_TIMEOUT_MS = 30000; // биометрия/PIN ждёт ввода пользователя
+
+// Не настоящий CryptoKey, а маркер режима для vault.encrypt/decrypt.
+export const ANDROID_KEY = Object.freeze({ __androidNative: true });
+export const isAndroidKey = (key) => !!key && key.__androidNative === true;
 
 export function androidNativeSupported(){
   try{
@@ -26,13 +27,13 @@ export function androidNativeDeleteKey(){
   }
 }
 
-// Единый реестр ожидающих запросов к мосту: native-сторона зовёт
+// Реестр ожидающих запросов к мосту: native-сторона зовёт
 // window.__androidVaultCallback(requestId, success, ivB64, dataB64, plaintextUtf8, errorMessage)
 // из VaultKeystoreBridge.respondEncryptSuccess/respondDecryptSuccess/respondError.
 const androidPending = new Map();
 window.__androidVaultCallback = function(requestId, success, ivB64, dataB64, plaintextUtf8, errorMessage){
   const entry = androidPending.get(requestId);
-  if(!entry) return; // таймаут уже отработал и запись убрана - поздний ответ игнорируем
+  if(!entry) return; // запись убрана по таймауту - поздний ответ игнорируем
   androidPending.delete(requestId);
   clearTimeout(entry.timeoutId);
   if(success) entry.resolve({ ivB64, dataB64, plaintextUtf8 });
@@ -41,7 +42,7 @@ window.__androidVaultCallback = function(requestId, success, ivB64, dataB64, pla
 
 function androidBridgeCall(fn){
   return new Promise((resolve, reject) => {
-    const requestId = uuid();
+    const requestId = crypto.randomUUID();
     const timeoutId = setTimeout(() => {
       androidPending.delete(requestId);
       reject(new Error(t('vault.errors.androidBridgeTimeout')));

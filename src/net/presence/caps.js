@@ -1,64 +1,61 @@
 // ===================== net/presence/caps.js =====================
-// XEP-0115 Entity Capabilities: наши disco#info фичи, вычисление caps ver
-// и сборка/отправка исходящего presence. Выделено из net/presence.js.
+// XEP-0115 Entity Capabilities: наши disco#info фичи, caps ver, сборка и отправка исходящего presence.
+// Из net/presence.js.
 import { CAPS_NODE, NS_CAPS, NS_DISCO_INFO, NS_NICK, NS_OMEMO_DEVICES, NS_VCARD_UPDATE } from '../../core/constants.js';
+import { debugLog, errMsg } from '../../core/debug-log.js';
 import { state } from '../../core/state.js';
-import { debugLog } from '../../core/debug-log.js';
-import { loadProfile } from '../vcard-storage.js';
+import * as bytes from '../../crypto/bytes.js';
+import { profileStore } from '../vcard-storage.js';
 
-const S = state;
-
-// Наши disco#info фичи. '+notify' на device-list узле - это то, что заставляет
-// СЕРВЕР КОНТАКТА (когда он видит наш caps hash в presence) авто-подписать нас
-// на события этого узла по правилам XEP-0163 §"Business Rules for Publish and
-// Notify Nodes" - а также то, что позволяет НАШЕМУ серверу авто-подписать нас
-// на device-list контактов, если они анонсируют то же самое. Без этой строки
-// push-уведомления об изменении device-list никогда не приходят, и клиент
-// вынужден полагаться на ручной опрос PEP перед каждой отправкой.
+// Наши disco#info фичи. '+notify' на device-list узле заставляет сервер контакта (увидев наш caps hash)
+// авто-подписать нас на этот узел (XEP-0163, Business Rules for Publish and Notify Nodes), а наш
+// сервер - на device-list контактов с тем же анонсом. Без него push об изменении device-list не приходит.
 const CAPS_IDENTITY = { category: 'client', type: 'web', name: 'omemo-web-chat' };
-export const CAPS_FEATURES = [
+const CAPS_FEATURES = [
   NS_DISCO_INFO,
   NS_CAPS,
   NS_OMEMO_DEVICES + '+notify',
 ];
 
 // XEP-0115 §5.1: конкатенация identity- и feature-строк через '<', SHA-1, base64.
-// У нас всегда ровно одна identity и фиксированный список фич без расширений
-// (dataforms), поэтому полный алгоритм с генерализованными расширениями не нужен.
+// Одна identity и фиксированные фичи без расширений (dataforms) - полный алгоритм не нужен.
 async function computeCapsVer(){
   const idStr = `${CAPS_IDENTITY.category}/${CAPS_IDENTITY.type}//${CAPS_IDENTITY.name}<`;
   const featStr = CAPS_FEATURES.slice().sort().join('<') + '<';
   const s = idStr + featStr;
-  const digest = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(s));
-  return btoa(String.fromCharCode(...new Uint8Array(digest)));
+  const digest = await crypto.subtle.digest('SHA-1', bytes.utf8ToBuf(s));
+  return bytes.b64FromBuf(digest);
 }
 
-// Собирает и отправляет presence со всем, что должны видеть контакты: XEP-0115
-// caps hash (если удалось посчитать), XEP-0172 <nick/> (псевдоним из своего
-// профиля, см. net/vcard.js) и XEP-0153 vcard-update - SHA-1 хэш текущего
-// аватара (пустой <photo/>, если аватар не выставлен), по которому контакты
-// понимают, нужно ли перекачивать нашу vCard. Вызывается и при входе, и
-// сразу после сохранения профиля (net/vcard.js:applyProfile), чтобы
-// изменения психевдонима/аватара сразу разошлись всем, кто нас видит онлайн.
+// Собирает и отправляет presence для контактов: XEP-0115 caps hash (если посчитан), XEP-0172 <nick/>
+// (из профиля, net/vcard.js) и XEP-0153 vcard-update - SHA-1 текущего аватара (пустой <photo/>, если
+// аватара нет): по нему контакты решают, перекачивать ли нашу vCard.
+// Вызывается при входе и после сохранения профиля (net/vcard.js:applyProfile).
 export async function broadcastPresence(){
-  const profile = loadProfile();
+  const profile = profileStore.get();
   const pres = $pres();
   try{
     const ver = await computeCapsVer();
     pres.c('c', {xmlns: NS_CAPS, hash: 'sha-1', node: CAPS_NODE, ver}).up();
     debugLog('presence: caps ver=' + ver + ' (фичи: ' + CAPS_FEATURES.join(', ') + ')');
   }catch(e){
-    debugLog('presence: не удалось вычислить caps ver (' + (e && e.message ? e.message : e) + ') - отправляю без caps');
+    debugLog('presence: не удалось вычислить caps ver (' + errMsg(e) + ') - отправляю без caps');
   }
-  if(profile && profile.nickname){
+  if(profile?.nickname){
     pres.c('nick', {xmlns: NS_NICK}).t(profile.nickname).up();
   }
   if(profile){
     pres.c('x', {xmlns: NS_VCARD_UPDATE}).c('photo').t(profile.photoHash || '').up().up();
   }
-  S.connection.send(pres);
+  state.connection.send(pres);
 }
 
-// CAPS_FEATURES/broadcastPresence потребляются только через прямой import
-// (net/presence/disco.js, net/connection/bootstrap.js, net/vcard.js) -
-// window.App-мост здесь больше не нужен.
+export function onDiscoInfoIq(iq){
+  const id = iq.getAttribute('id');
+  const from = iq.getAttribute('from');
+  const res = $iq({type:'result', id, to: from}).c('query', {xmlns: NS_DISCO_INFO});
+  res.c('identity', CAPS_IDENTITY).up();
+  CAPS_FEATURES.forEach(f => res.c('feature', {var: f}).up());
+  state.connection.send(res);
+  return true;
+}

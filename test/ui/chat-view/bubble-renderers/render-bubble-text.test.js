@@ -9,34 +9,17 @@ describe('renderBubble - текстовый пузырь (без singleMedia)', 
   beforeEach(() => {
     vi.clearAllMocks();
     media.getCached.mockReturnValue(undefined);
-    media.isVideoNote.mockReturnValue(false);
-    media.isSticker.mockReturnValue(false);
-    formatMessageBody.mockReturnValue({ quoteHtml: '', bodyHtml: 'привет', mediaPlaceholders: [] });
+    formatMessageBody.mockReturnValue({ quoteHtml: '', bodyHtml: 'привет' });
   });
 
   it('без singleMedia - текстовый пузырь через formatMessageBody', () => {
     const res = renderBubble({ out: false, body: 'привет' }, null, ctx);
-    expect(formatMessageBody).toHaveBeenCalledWith('привет', { out: false, nextSeq: ctx.nextSeq });
-    expect(res.html).toContain('привет');
-  });
-
-  it('текстовый пузырь с mediaPlaceholders - маппит kind=plain-image в media.type=plain-image, остальное в deferrable', () => {
-    formatMessageBody.mockReturnValue({
-      quoteHtml: '', bodyHtml: '',
-      mediaPlaceholders: [
-        { id: 'm1', url: 'u1', holdOff: false, kind: 'plain-image' },
-        { id: 'm2', url: 'u2', holdOff: true, kind: 'video' },
-      ],
-    });
-    const res = renderBubble({ out: false, body: 'x' }, null, ctx);
-    expect(res.media).toEqual([
-      { type: 'plain-image', id: 'm1', url: 'u1', holdOff: false },
-      { type: 'deferrable', id: 'm2', url: 'u2', holdOff: true },
-    ]);
+    expect(formatMessageBody).toHaveBeenCalledWith('привет', { out: false });
+    expect(String(res.html)).toContain('привет');
   });
 
   it('исправленное сообщение (m.edited) - в текстовом пузыре появляется пометка edited', () => {
     const res = renderBubble({ out: false, body: 'x', edited: true }, null, ctx);
-    expect(res.html).toContain('edited-tag');
+    expect(String(res.html)).toContain('edited-tag');
   });
 });

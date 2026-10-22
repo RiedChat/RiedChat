@@ -1,18 +1,10 @@
 // ===================== ui/voice-player/track-player.js =====================
-// Режим 2: музыкальный файл с ID3-тегами (TIT2/TPE1/обложка) - карточка трека:
-// обложка/иконка с play-кнопкой поверх, название, исполнитель+длительность,
-// при воспроизведении вторая строка меняется на бегунок с таймкодом.
-// Выделено из ui/voice-player.js.
-import { html, raw, setHTML } from '../../core/safe-html.js';
+// Режим 2: музыкальный файл с ID3 (TIT2/TPE1/обложка) - карточка трека: обложка/иконка с play поверх, название, исполнитель+длительность; при воспроизведении вторая строка - бегунок с таймкодом.
+import { clamp01, formatMmSs } from '../../core/dom-utils.js';
+import { html, raw } from '../../core/safe-html.js';
 import { t } from '../../i18n/t.js';
 
-import { wireVoiceAudio } from './audio-lifecycle.js';
-
-const fmt = (s) => {
-  if(!isFinite(s) || s < 0) s = 0;
-  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
-  return m + ':' + String(sec).padStart(2, '0');
-};
+import { bindTimeline, mountVoiceFrame, playButtonHtml, seekByClick, wireVoiceAudio } from './audio-lifecycle.js';
 
 export function mountTrackPlayer(host, blobUrl, tags){
   const bubble = host.closest('.bubble');
@@ -22,17 +14,14 @@ export function mountTrackPlayer(host, blobUrl, tags){
   const title = tags.title || t('voicePlayer.untitled');
   const artist = tags.artist || '';
 
-  setHTML(host, html`
+  const markup = html`
     <div class="voice-msg track-msg">
       <div class="track-avatar">
         <div class="track-avatar-clip">
           ${tags.cover ? html`<img src="${raw(tags.cover)}" alt="">` : raw(`<div class="track-avatar-fallback">
             <svg viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3z"/></svg>
           </div>`)}
-          <button class="voice-play track-play" type="button" aria-label="${t('voicePlayer.play')}" aria-pressed="false">
-            <svg class="ic-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-            <svg class="ic-pause" viewBox="0 0 24 24" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
-          </button>
+          ${playButtonHtml('track-play')}
         </div>
       </div>
       <div class="voice-body track-body">
@@ -41,91 +30,67 @@ export function mountTrackPlayer(host, blobUrl, tags){
           <span class="track-duration">…</span>${artist ? html`<span class="track-dot">•</span><span class="track-artist">${artist}</span>` : ''}
         </div>
         <div class="track-progress" style="display:none">
-          <span class="track-time">0:00</span>
+          <span class="track-time">${formatMmSs(0)}</span>
           <span class="track-bar"><span class="track-bar-fill"></span><span class="track-bar-dot"></span></span>
         </div>
       </div>
-    </div>`);
+    </div>`;
 
-  const audio = new Audio(blobUrl);
-  audio.preload = 'metadata';
-
-  const btn = host.querySelector('.track-play');
-  const iconPlay = host.querySelector('.ic-play');
-  const iconPause = host.querySelector('.ic-pause');
-  const durationEl = host.querySelector('.track-duration');
-  const staticRow = host.querySelector('.track-static');
-  const progressRow = host.querySelector('.track-progress');
-  const timeEl = host.querySelector('.track-time');
-  const barFill = host.querySelector('.track-bar-fill');
-  const barDot = host.querySelector('.track-bar-dot');
-  const bar = host.querySelector('.track-bar');
-
-  let duration = 0;
+  const { audio, els } = mountVoiceFrame(host, blobUrl, markup, {
+    durationEl: '.track-duration',
+    staticRow: '.track-static',
+    progressRow: '.track-progress',
+    timeEl: '.track-time',
+    barFill: '.track-bar-fill',
+    barDot: '.track-bar-dot',
+    bar: '.track-bar',
+  });
+  const { durationEl, staticRow, progressRow, timeEl, barFill, barDot, bar } = els;
 
   const updateBar = (frac) => {
-    frac = Math.min(1, Math.max(0, frac));
+    frac = clamp01(frac);
     barFill.style.width = (frac * 100) + '%';
     barDot.style.left = (frac * 100) + '%';
   };
 
   const updateRows = () => {
     const started = audio.currentTime > 0 || !audio.paused;
-    staticRow.style.display = started ? 'none' : '';
-    progressRow.style.display = started ? '' : 'none';
+    staticRow.hidden = started;
+    progressRow.hidden = !started;
   };
 
-  audio.addEventListener('loadedmetadata', () => {
-    duration = audio.duration || 0;
-    durationEl.textContent = fmt(duration);
+  bindTimeline(audio, {
+    onDuration: duration => { durationEl.textContent = formatMmSs(duration); },
+    onTime: (currentTime, duration) => {
+      timeEl.textContent = formatMmSs(currentTime);
+      if(duration > 0) updateBar(currentTime / duration);
+      updateRows();
+    },
+    onEnded: () => {
+      audio.currentTime = 0; updateBar(0); updateRows();
+      timeEl.textContent = formatMmSs(0);
+    },
   });
-  audio.addEventListener('timeupdate', () => {
-    timeEl.textContent = fmt(audio.currentTime);
-    if(duration > 0) updateBar(audio.currentTime / duration);
-    updateRows();
-  });
-  wireVoiceAudio(audio, iconPlay, iconPause, {onPlay: updateRows, host});
-  audio.addEventListener('ended', () => {
-    audio.currentTime = 0; updateBar(0); updateRows();
-    timeEl.textContent = '0:00';
-  });
+  wireVoiceAudio(audio, host, {onPlay: updateRows});
 
-  btn.addEventListener('click', () => {
-    if(audio.paused) audio.play().catch(() => {}); else audio.pause();
-  });
-
-  // Клик и перетаскивание бегунка (мышь/тач) - как в Telegram.
+  // Клик и перетаскивание бегунка (мышь/тач), как в Telegram.
   const seekFromEvent = (e) => {
-    if(!duration) return;
-    const rect = bar.getBoundingClientRect();
-    const clientX = (e.touches && e.touches[0] ? e.touches[0].clientX : e.clientX);
-    const frac = (clientX - rect.left) / rect.width;
-    const clamped = Math.min(1, Math.max(0, frac));
-    audio.currentTime = clamped * duration;
-    updateBar(clamped);
+    const frac = seekByClick(audio, bar, e.clientX);
+    if(frac !== null) updateBar(frac);
   };
-  // setPointerCapture на самом bar (тот же приём, что и в ui/swipe-gesture.js
-  // этого проекта) вместо window.addEventListener('pointermove'/'pointerup', ...):
-  // после захвата move/up-события идут на bar независимо от того, куда
-  // палец/курсор уехал за пределы бегунка - слушать их на window не нужно.
-  // Раньше listener'ы вешались на window при КАЖДОМ mountTrackPlayer() и
-  // никогда не снимались - на длинной сессии с несколькими треками (и с
-  // учётом того, что render-messages.js перемонтирует уже показанные плееры
-  // заново при каждом новом сообщении в чате) их число росло без остановки.
+  // setPointerCapture на bar (как в swipe-gesture.js) вместо window-слушателей pointermove/pointerup: move/up идут на bar, куда бы ни уехал палец. Раньше window-listener'ы вешались при каждом mountTrackPlayer() и не снимались - при перемонтировании плееров они копились всю сессию.
   let dragging = false;
   bar.addEventListener('pointerdown', (e) => {
     dragging = true;
-    try{ bar.setPointerCapture(e.pointerId); }catch(_err){ /* Safari<13 - просто без capture */ }
+    bar.setPointerCapture(e.pointerId);
     seekFromEvent(e);
     e.preventDefault();
   });
-  // dragging-флаг всё ещё нужен: без него любое наведение курсора мыши на
-  // bar (даже без нажатия) уже вызывало бы pointermove и таскало бы
-  // позицию воспроизведения.
+  // Флаг dragging нужен: без него наведение мыши на bar без нажатия вызывало бы pointermove и двигало воспроизведение.
   bar.addEventListener('pointermove', (e) => { if(dragging) seekFromEvent(e); });
   bar.addEventListener('pointerup', (e) => {
     dragging = false;
-    try{ bar.releasePointerCapture(e.pointerId); }catch(_err){ /* уже отпущен браузером */ }
+    bar.releasePointerCapture(e.pointerId);
   });
   bar.addEventListener('pointercancel', () => { dragging = false; });
 }

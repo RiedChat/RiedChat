@@ -1,212 +1,108 @@
 // ===================== ui/chat-view/message-body-html.js =====================
-// Чистая (без DOM, без сети) логика "что за медиа в этом сообщении" и разбор
-// текста сообщения в HTML: цитата (см. net/messaging/outgoing.js:buildQuotedBody) и
-// инлайн-медиа/ссылки в теле. Не создаёт DOM-узлов и не грузит медиа - только
-// строит разметку и список плейсхолдеров; их догрузку (loadEncryptedMedia /
-// _loadMediaOrDeferForVideo) делает вызывающий код в render-messages.js
-// после вставки готовой разметки в DOM.
-import { escapeHtml } from '../../core/dom-utils.js';
+// Чистая логика (без DOM и сети): какое медиа в сообщении и разбор тела в HTML - цитата (outgoing.js:buildQuotedBody), инлайн-медиа/ссылки.
+// Строит разметку с плейсхолдерами (data-media-*); догрузку делает render-messages.js после вставки в DOM.
+import { cx, escapeHtml, html, raw } from '../../core/safe-html.js';
 import { IMG_RE, URL_RE, splitQuotedBody } from '../../core/text-patterns.js';
-import { media } from '../../net/media.js';
-import { mediaLabel } from '../../features/message-swipe.js';
-import { loadVideoAutoDownloadEnabled } from '../../features/video-settings.js';
-import { loadImageAutoDownloadEnabled } from '../../features/image-settings.js';
-import { loadFileAutoDownloadEnabled } from '../../features/file-settings.js';
-import { isTrustedContact } from '../../net/trusted-contacts.js';
-import { state } from '../../core/state.js';
-import { t } from '../../i18n/t.js';
+import { canAutoLoadImage } from '../../features/autoload-settings.js';
+import { mediaLabel } from '../../features/message-swipe/shared.js';
+import { classifyUrl } from '../../net/media/classify.js';
+import { isAesgcm, AESGCM_RE } from '../../net/media/mime-kind.js';
 
-// Определяет, является ли тело сообщения ЦЕЛИКОМ одной ссылкой на фото/видео/аудио
-// (без сопровождающего текста) - для фото/видео применяется "встык"-рендер
-// без рамки-паддинга (см. .bubble.media-only в CSS), для голосовых/аудио -
-// компактный пузырь с минимальными отступами (см. .bubble.voice-only), как в Telegram.
+import { TAP_LOAD_CLASS, BLANK_LINK_ATTRS, imageLinkHtml, mediaAttrs, quoteTapLoadThumb, photoTapBox, deferredFrameHtml } from './media-placeholder.js';
+import { describeMedia } from './media-traits.js';
+
+// Тело целиком - одна ссылка на фото/видео/аудио (без текста): фото/видео рендерятся «встык» (.bubble.media-only), голосовые/аудио - компактным пузырём (.bubble.voice-only).
 export function classifySingleMedia(raw){
-  const trimmed = String(raw || '').trim();
-  if(!trimmed) return null;
-  const aesMatches = trimmed.match(media.AESGCM_RE);
-  if(aesMatches && aesMatches.length === 1 && aesMatches[0] === trimmed){
-    const kind = media.kindOf(media.extOf(trimmed));
-    if(kind === 'image' || kind === 'video' || kind === 'audio') return {encrypted:true, kind, url: trimmed};
-    // Пак стикеров (features/stickers/share.js) - обычное зашифрованное
-    // вложение, kind тут вернётся 'file' (.zip не входит в image/video/audio
-    // в net/media/mime-kind.js:kindOf) - опознаём отдельно по фиксированному
-    // имени файла "stickers.zip" (см. isStickerPack) и рисуем карточкой
-    // "Добавить пак" (bubble-renderers.js/features/stickers/pack-card.js),
-    // а не голой ссылкой на файл.
-    if(kind === 'file' && media.isStickerPack(trimmed)) return {encrypted:true, kind:'stickerpack', url: trimmed};
-    // Обычный файл (не картинка/видео/аудио/пак стикеров) - тоже aesgcm://
-    // (см. net/upload.js), т.е. это всегда реальное вложение, а не ссылка,
-    // вручную вставленная в текст: safe возвращать как single-media. Раньше
-    // здесь падали в null, из-за чего одиночный файл рендерился обычным
-    // текстовым пузырём с сырой aesgcm-ссылкой вместо карточки вложения
-    // (renderMediaOnlyBubble уже умеет kind:'file' - см. bubble-renderers.js),
-    // и по той же причине при цитировании такого сообщения (см.
-    // features/message-swipe/quote.js и quoteDisplayText ниже) вместо
-    // дружелюбной метки "📎 Файл" показывалась сама ссылка.
-    if(kind === 'file') return {encrypted:true, kind:'file', url: trimmed};
-    return null;
-  }
-  const urlMatches = trimmed.match(URL_RE);
-  if(urlMatches && urlMatches.length === 1 && urlMatches[0] === trimmed){
-    if(IMG_RE.test(trimmed)) return {encrypted:false, kind:'image', url: trimmed};
-    // Незашифрованный (не OMEMO) пак стикеров - тот же маркер по имени файла.
-    if(media.isStickerPack(trimmed)) return {encrypted:false, kind:'stickerpack', url: trimmed};
-  }
-  return null;
+  const single = classifyUrl(raw);
+  // Незашифрованная ссылка - вложение только если картинка или пак стикеров; остальное - обычный текст.
+  return single && (single.encrypted || single.kind !== 'file') ? single : null;
 }
 
-// Разбирает тело обычного (не single-media) сообщения: вычленяет блок
-// цитаты и заменяет инлайн aesgcm://-медиа и обычные ссылки/картинки на
-// HTML-плейсхолдеры. nextSeq() - функция-счётчик id, общая на весь рендер
-// списка сообщений (передаётся снаружи, чтобы id не повторялись между
-// сообщениями). Возвращает {quoteHtml, bodyHtml, mediaPlaceholders, quoteMedia},
-// где mediaPlaceholders - [{id, url, holdOff}] для последующей догрузки, а
-// quoteMedia (если цитата ссылается на фото/видео/кружок/стикер) -
-// {id, url, kind, isNote} для отдельной догрузки миниатюры внутри самой цитаты
-// (см. ui/chat-view/media-loader.js:loadQuoteThumb).
-export function formatMessageBody(rawBody, {out, nextSeq}){
+// Метка вложения («📷 Фото» и т.п.) или null, если тело - не одиночное медиа. Для цитаты (formatMessageBody) и превью ростера (ui/roster.js). single - готовый classifySingleMedia(body), если есть.
+export function mediaLabelFor(body, single = classifySingleMedia(body)){
+  return single ? mediaLabel(single.kind, body) : null;
+}
+
+// Миниатюра в цитате - только для фото/видео (включая кружки и стикеры, см. message-swipe/shared.js:mediaLabel); голосовым/файлам/пакам хватает метки.
+// Возвращает thumbHtml ('' - миниатюры нет); догрузку описывают data-media-* на контейнере (quote-thumb.js, картинка за тапом - plain-image).
+function quoteThumb(quotedMedia, out){
+  if(!quotedMedia || (quotedMedia.kind !== 'image' && quotedMedia.kind !== 'video')) return '';
+  const { kind, url } = quotedMedia;
+  const desc = describeMedia(url, { out, kind });
+  const { isNote } = desc;
+  const thumbClass = 'quote-thumb' + (isNote ? ' quote-thumb-round' : '');
+  if(quotedMedia.encrypted){
+    // aesgcm://: плейсхолдер, расшифровка после вставки в DOM (media.decrypt). Автозагрузка как у инлайн-медиа (shouldHoldOff в describeMedia), иначе цитата качала бы вложение в обход настройки.
+    // Картинки (кроме стикеров) shouldHoldOff не задерживает - для них canAutoLoadImage, цитата его тоже соблюдает. При holdOff расшифровка - по тапу (quote-thumb.js:loadQuoteThumbOrDefer).
+    const holdOff = desc.holdOff || (kind === 'image' && !canAutoLoadImage(out));
+    const attrs = mediaAttrs('quote-thumb', url, holdOff);
+    return holdOff ? quoteTapLoadThumb(thumbClass, attrs) : html`<div class="${thumbClass}"${attrs}></div>`;
+  }
+  if(kind !== 'image') return '';
+  // Открытый https-URL: тот же tracking-pixel риск (security-plan.md, п.5), решение то же - canAutoLoadImage (out || автозагрузка + доверенный контакт).
+  return canAutoLoadImage(out)
+    ? html`<div class="${thumbClass}"><img src="${url}" loading="lazy"></div>`
+    : quoteTapLoadThumb(thumbClass, mediaAttrs('plain-image', url));
+}
+
+// Блок цитаты. data-quote-text - для клика (features/quote-jump.js): по нему ищем исходное сообщение (id в теле не передаётся).
+// Для медиа quoted - голая ссылка (message-swipe/quote.js:startReply): показываем метку, в data-quote-text оставляем ссылку.
+function buildQuote(quoteSplit, out){
+  const { quoted, author, id } = quoteSplit;
+  const quotedMedia = classifySingleMedia(quoted);
+  const displayText = mediaLabelFor(quoted, quotedMedia) ?? quoted;
+  const idAttr = id === null ? '' : html` data-quote-id="${id}"`;
+  const thumbHtml = quoteThumb(quotedMedia, out);
+  const authorHtml = author ? html`<span class="quote-author">${author}</span>` : '';
+  // html`` экранирует подстановки; formatMessageBody отдаёт обычную строку.
+  const quoteHtml = String(html`<div class="quote-block" data-quote-author="${author}" data-quote-text="${quoted}"${idAttr}>${thumbHtml}<div class="quote-block-text">${authorHtml}${displayText}</div></div>`);
+  return quoteHtml;
+}
+
+// aesgcm:// сначала скачивается и расшифровывается: ставим плейсхолдер с data-media-*, заполняем асинхронно через media.decrypt().
+// u уже заэкранирован (bodyHtml прошёл escapeHtml) - в атрибут идёт как raw(u); браузер раскодирует сущности, dataset.mediaUrl отдаст исходную ссылку.
+function inlineMediaHtml(u, { out }){
+  // audio-embed ставим сразу (kind известен по расширению): плеер ужимается классом, без :has() (не везде в Android WebView).
+  // Кружок - video-kind, но круглый плеер 200x200 вместо 16:9 (bubble-renderers.js:renderMediaBubble).
+  // Файл (.pdf/.docx/.zip) вместе с текстом/цитатой (иначе singleMedia) - та же проверка настройки, что у видео (решение - describeMedia).
+  const desc = describeMedia(u, { out });
+  const { kind, isNote, holdOff } = desc;
+  const extraClass = kind === 'audio' ? 'audio-embed' : isNote ? 'video-note-embed' : '';
+  // Превью из ссылки (thumb-codec.js) - desc.thumbDataUrl, фоном плейсхолдера до скачивания (при holdOff - до тапа). Плашка - <span>: bodyHtml режется regex по первому </div> media-embed.
+  const inner = deferredFrameHtml(desc);
+  return `<div class="${cx('media-embed', extraClass, holdOff && TAP_LOAD_CLASS)}"${mediaAttrs('deferrable', raw(u), holdOff)}>${inner}</div>`;
+}
+
+// Обычные ссылки: картинка - <img> или заглушка до тапа, остальное - <a>. u уже заэкранирован (bodyHtml прошёл escapeHtml).
+function inlineUrlHtml(u, { out }){
+  if(isAesgcm(u)) return u; // уже обработано в inlineMediaHtml
+  if(!IMG_RE.test(u)) return String(html`<a href="${raw(u)}" ${BLANK_LINK_ATTRS}>${raw(u)}</a>`);
+  // Свои ссылки (out) - сразу. Входящие - только при включённой автозагрузке и доверенном контакте (net/trusted-contacts.js): иначе голая ссылка - tracking pixel (security-plan.md, п.5).
+  // Иначе - заглушка с рамкой 16:9; по тапу loadPlainImage подменяет её на <img>.
+  return String(canAutoLoadImage(out)
+    ? imageLinkHtml(raw(u))
+    : html`<div class="media-embed ${TAP_LOAD_CLASS}"${mediaAttrs('plain-image', raw(u))}>${photoTapBox()}</div>`);
+}
+
+// .bubble с white-space:pre-wrap: пустые строки вокруг вложения раздували бы высоту. Блочные вставки медиа сами переносят строку - убираем переносы вокруг них.
+const EMBED_NEWLINES_RE = /(\n[ \t]*)*(<div class="media-embed[^"]*"[^>]*>[\s\S]*?<\/div>)([ \t]*\n)*/g;
+
+// Разбор тела обычного (не single-media) сообщения: выделяет цитату, заменяет aesgcm://-медиа и ссылки на плейсхолдеры.
+// Возвращает {quoteHtml, bodyHtml}. Что догрузить после вставки в DOM, описывают data-media-* на плейсхолдерах (media-placeholder.js:mediaAttrs).
+export function formatMessageBody(rawBody, { out }){
   let mainBody = rawBody || '';
   let quoteHtml = '';
-  let quoteMedia = null;
-  let mediaIdx = 0;
-  const mediaPlaceholders = [];
+  const ctx = { out };
+
   const quoteSplit = splitQuotedBody(mainBody);
   if(quoteSplit){
-    // data-quote-text - не для отображения, а для клика по цитате (см.
-    // features/quote-jump.js): по нему ищем в истории чата сообщение, на
-    // которое эта цитата ссылается (протокол текстовый, id оригинала в теле
-    // не передаётся). Для цитаты медиа-сообщения quoteSplit.quoted - это
-    // голая ссылка на файл (см. features/message-swipe.js:startReply), а не
-    // текст для человека - поэтому для ОТОБРАЖЕНИЯ распознаём её тем же
-    // способом, что и обычное инлайн-медиа в теле (classifySingleMedia
-    // выше), и рисуем дружелюбную метку вместо сырой ссылки; data-quote-text
-    // при этом остаётся точной ссылкой, чтобы клик находил именно то
-    // сообщение, а не любое той же природы (фото/видео/голосовое).
-    const quotedMedia = classifySingleMedia(quoteSplit.quoted);
-    const quoteDisplayText = quotedMedia ? mediaLabel(quotedMedia.kind, quoteSplit.quoted) : quoteSplit.quoted;
-    const idAttr = quoteSplit.id === null ? '' : ` data-quote-id="${escapeHtml(quoteSplit.id)}"`;
-    // Миниатюра внутри цитаты - только для того, что реально можно показать
-    // картинкой (фото/видео, включая кружки и стикеры - технически это тот
-    // же image/video-kind, см. features/message-swipe/shared.js:mediaLabel).
-    // Голосовые/файлы/паки стикеров такого превью не получают - для них
-    // текстовой метки (📎 Файл и т.п.) достаточно, а плеер/карточка внутри
-    // самой цитаты был бы избыточен.
-    let quoteThumbHtml = '';
-    if(quotedMedia && (quotedMedia.kind === 'image' || quotedMedia.kind === 'video')){
-      const isNote = quotedMedia.kind === 'video' && media.isVideoNote(quotedMedia.url);
-      const thumbClass = 'quote-thumb' + (isNote ? ' quote-thumb-round' : '');
-      if(quotedMedia.encrypted){
-        // aesgcm:// - расшифровывается асинхронно (тот же net/media.js:decrypt,
-        // что и для обычного инлайн-медиа выше) - ставим плейсхолдер и просим
-        // догрузить после вставки в DOM (см. bubble-renderers.js/render-messages.js).
-        // Та же проверка автозагрузки, что и для инлайн-медиа/незашифрованных
-        // картинок ниже - иначе цитата тихо скачивает и расшифровывает вложение
-        // в обход выключенной настройки. Если автозагрузка выключена, ставим
-        // ту же плашку "нажмите, чтобы загрузить" - реальная расшифровка (см.
-        // media-loader.js:_loadQuoteThumbOrDefer) запускается только по тапу.
-        const thumbId = 'quote-thumb-' + nextSeq();
-        const holdOff = !(out || (loadImageAutoDownloadEnabled() && isTrustedContact(state.activeChat)));
-        quoteThumbHtml = holdOff
-          ? `<div class="${thumbClass} image-tap-load video-tap-load" id="${thumbId}"><span class="video-tap-load-overlay"><span class="video-tap-load-play"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#photo"></use></svg></span></span></div>`
-          : `<div class="${thumbClass}" id="${thumbId}"></div>`;
-        quoteMedia = { id: thumbId, url: quotedMedia.url, kind: quotedMedia.kind, isNote, holdOff };
-      } else if(quotedMedia.kind === 'image'){
-        // Незашифрованная картинка - открытый https-URL. Раньше показывали
-        // сразу, игнорируя image-settings.js - тот же tracking-pixel риск,
-        // что и с обычной инлайн-картинкой (см. п.5 security-plan.md), просто
-        // спрятанный внутри цитаты. Применяем ту же проверку, что и ниже для
-        // обычных инлайн-картинок (out || автозагрузка+доверенный контакт).
-        if(out || (loadImageAutoDownloadEnabled() && isTrustedContact(state.activeChat))){
-          quoteThumbHtml = `<div class="${thumbClass}"><img src="${escapeHtml(quotedMedia.url)}" loading="lazy"></div>`;
-        } else {
-          const thumbId = 'quote-thumb-' + nextSeq();
-          quoteThumbHtml = `<div class="${thumbClass} image-tap-load video-tap-load" id="${thumbId}"><span class="video-tap-load-overlay"><span class="video-tap-load-play"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#photo"></use></svg></span></span></div>`;
-          mediaPlaceholders.push({id: thumbId, url: quotedMedia.url, kind: 'plain-image', holdOff: true});
-        }
-      }
-    }
-    quoteHtml = `<div class="quote-block" data-quote-author="${escapeHtml(quoteSplit.author)}" data-quote-text="${escapeHtml(quoteSplit.quoted)}"${idAttr}>${quoteThumbHtml}<div class="quote-block-text">${quoteSplit.author ? `<span class="quote-author">${escapeHtml(quoteSplit.author)}</span>` : ''}${escapeHtml(quoteDisplayText)}</div></div>`;
+    quoteHtml = buildQuote(quoteSplit, out);
     mainBody = quoteSplit.rest;
   }
-  let bodyHtml = escapeHtml(mainBody.trim());
-  // aesgcm:// - зашифрованные (XEP-0454) файлы, их сначала нужно скачать
-  // и расшифровать в браузере, поэтому ставим плейсхолдер с data-атрибутом
-  // и заполняем его асинхронно снаружи через media.decrypt().
-  bodyHtml = bodyHtml.replace(media.AESGCM_RE, (u) => {
-    const id = 'media-' + nextSeq() + '-' + (mediaIdx++);
-    // Класс audio-embed ставим уже сейчас (kind известен синхронно по расширению
-    // ссылки, расшифровка ещё не нужна) - чтобы ужать голосовой плеер под его
-    // реальный размер через обычный класс, не полагаясь на :has() в CSS
-    // (в части WebView на Android :has() не поддерживается, и правило на нём
-    // просто молча не срабатывает).
-    const kind = media.kindOf(media.extOf(u));
-    // Кружок (features/video-note.js) - тот же video-kind, но круглый плеер
-    // 200x200 вместо рамки 16:9 (см. renderMediaOnlyBubble в bubble-renderers.js
-    // для "чистого" медиа-сообщения). Раньше здесь, в инлайн-рендере (когда
-    // видео/кружок отправлено ВМЕСТЕ с цитатой и попадает в текстовый пузырь,
-    // а не в media-only), эта проверка отсутствовала вовсе - любой кружок
-    // рисовался обычной растянутой 16:9-рамкой.
-    const isNote = kind === 'video' && media.isVideoNote(u);
-    const extraClass = kind === 'audio' ? ' audio-embed' : isNote ? ' video-note-embed' : '';
-    const cachedEntry = media.getCached(u);
-    const alreadyDone = cachedEntry && cachedEntry.status === 'done';
-    // Обычный файл-вложение (.pdf/.docx/.zip и т.п.), отправленный ВМЕСТЕ с
-    // текстом/цитатой (иначе это singleMedia, см. bubble-renderers.js) - та же
-    // проверка настройки, что и у видео чуть ниже, иначе файл в инлайн-виде
-    // тихо скачивался и расшифровывался бы в обход выключенного тумблера
-    // (см. features/file-settings.js).
-    const holdOff = !out && !alreadyDone && (
-      kind === 'video' ? !loadVideoAutoDownloadEnabled() :
-      kind === 'file' && !loadFileAutoDownloadEnabled()
-    );
-    mediaPlaceholders.push({id, url: u, holdOff});
-    // Превью, встроенное отправителем в саму ссылку (см.
-    // net/media/thumb-codec.js) - показываем его СРАЗУ фоном плейсхолдера,
-    // ещё до скачивания/расшифровки самого видео (а для holdOff - даже до
-    // тапа пользователя). extractThumbDataUrl сама проверяет содержимое на
-    // допустимый base64url-алфавит, так что тут можно вставлять результат
-    // без дополнительного экранирования кавычек/скобок.
-    const thumbDataUrl = kind === 'video' ? media.extractThumbDataUrl(u) : null;
-    const thumbStyle = thumbDataUrl ? ` style="background-image:url('${thumbDataUrl}');background-size:cover;background-position:center"` : '';
-    const boxClass = isNote ? 'video-note-box' : 'video-ratio-box';
-    const tapIcon = kind === 'file' ? '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#paper-clip"></use></svg>' : '▶';
-    const inner = holdOff
-      // span, а не div: строкой ниже bodyHtml прогоняется через regex, который
-      // ищет конец media-embed по ПЕРВОМУ </div> - вложенный <div> тут обрезал
-      // бы разметку на полпути.
-      ? `<span class="${boxClass}"${thumbStyle}><span class="video-tap-load-overlay"><span class="video-tap-load-play">${tapIcon}</span></span></span>`
-      : `<span class="media-loading"${thumbStyle}>⏳ ${t('media.loading')}</span>`;
-    return `<div class="media-embed${extraClass}${holdOff ? ' video-tap-load' : ''}" id="${id}">${inner}</div>`;
-  });
-  bodyHtml = bodyHtml.replace(URL_RE, (u) => {
-    if(media.isAesgcm(u)) return u; // уже обработано выше
-    if(IMG_RE.test(u)){
-      // Свои же исходящие ссылки (out) всегда показываем сразу - это то,
-      // что отправил сам пользователь, скрывать нечего. Для входящих -
-      // только если явно включена автозагрузка (по умолчанию выключена,
-      // см. features/image-settings.js) И контакт доверенный (добавлен
-      // вручную или есть история переписки, см. net/trusted-contacts.js) -
-      // иначе непроверенный/новый JID мог бы использовать голую ссылку как
-      // tracking pixel даже при включённом общем тумблере (riedchat-security-plan.md, п.5).
-      if(out || (loadImageAutoDownloadEnabled() && isTrustedContact(state.activeChat))){
-        return `<a href="${u}" target="_blank" rel="noopener"><img src="${u}"></a>`;
-      }
-      // Вместо автозагрузки - кликабельная заглушка с той же 16:9-рамкой, что
-      // и у видео. По тапу media-loader.js:loadPlainImage подменяет плейсхолдер
-      // на настоящий <img> прямо в пузыре (не открытие в отдельной вкладке).
-      const id = 'media-' + nextSeq() + '-' + (mediaIdx++);
-      mediaPlaceholders.push({id, url: u, kind: 'plain-image', holdOff: true});
-      return `<div class="media-embed image-tap-load video-tap-load" id="${id}"><span class="video-ratio-box"><span class="video-tap-load-overlay"><span class="video-tap-load-play"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#photo"></use></svg></span></span></span></div>`;
-    }
-    return `<a href="${u}" target="_blank" rel="noopener">${u}</a>`;
-  });
-  // .bubble рендерится с white-space:pre-wrap, поэтому пустые строки, которые
-  // некоторые клиенты оставляют вокруг вложения (перевод строки до и после
-  // ссылки), превращаются в видимые пустые строки и раздувают пузырь по
-  // высоте - плеер/картинка при этом визуально «уезжает» от текста времени.
-  // Блочные вставки медиа сами создают перенос, поэтому переносы строк
-  // вокруг них не нужны - убираем.
-  bodyHtml = bodyHtml.replace(/(\n[ \t]*)*(<div class="media-embed[^"]*"[^>]*>[\s\S]*?<\/div>)([ \t]*\n)*/g, '$2');
-  return { quoteHtml, bodyHtml, mediaPlaceholders, quoteMedia };
-}
 
+  const bodyHtml = escapeHtml(mainBody.trim())
+    .replace(AESGCM_RE, u => inlineMediaHtml(u, ctx))
+    .replace(URL_RE, u => inlineUrlHtml(u, ctx))
+    .replace(EMBED_NEWLINES_RE, '$2');
+  return { quoteHtml, bodyHtml };
+}

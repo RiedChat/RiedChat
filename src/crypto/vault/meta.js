@@ -1,10 +1,9 @@
 // ===================== crypto/vault/meta.js =====================
-// В localStorage (ключ 'xmppChatVaultMeta') лежат только непубличные, но не
-// секретные метаданные: credentialId для WebAuthn, соль+число итераций для
-// пароль-фразы, либо ничего доп. для android-native (ключ живёт в Keystore
-// под фиксированным alias, см. VaultKeystoreBridge.KEY_ALIAS).
-import { lsGet, lsSet, lsRemove } from '../../core/storage.js';
+// В localStorage ('xmppChatVaultMeta') только несекретные метаданные: credentialId (WebAuthn),
+// соль+итерации (пароль-фраза); для android-native ничего (ключ в Keystore под KEY_ALIAS, VaultKeystoreBridge).
 import { state } from '../../core/state.js';
+import { lsGet, lsSet, lsRemove } from '../../core/storage.js';
+
 import { androidNativeDeleteKey } from './android-bridge.js';
 
 const META_KEY = 'xmppChatVaultMeta';

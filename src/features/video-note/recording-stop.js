@@ -1,47 +1,44 @@
 // ================ features/video-note/recording-stop.js ================
-// Обработчик события "stop" MediaRecorder: собирает записанные чанки в Blob
-// и показывает предпросмотр, либо просто закрывает модалку, если запись
-// была отменена (S.discardOnStop) или чанков не оказалось.
+// Остановка записи: стоп с предпросмотром, отмена без сохранения и обработчик "stop" MediaRecorder -
+// собирает чанки в Blob и показывает предпросмотр, либо закрывает модалку при отмене (S.discardOnStop) или отсутствии чанков.
 import fixWebmDuration from 'fix-webm-duration';
-import { $ } from '../../core/dom-utils.js';
-import { S } from './state.js';
-import { stopStream } from './camera.js';
-import { showModal, showRecordingControls } from './ui.js';
+
+import { $, playQuietly } from '../../core/dom-utils.js';
 import { encodeThumbFromSource } from '../../net/media/thumb-codec.js';
 
-// Кружки - ровно тот случай, для которого постфактумный захват кадра из
-// готового webm ненадёжен (см. комментарий в шапке recording.js и в
-// ui/chat-view/video-poster/index.js: MediaRecorder не пишет индекс
-// кадров, currentTime на таких файлах браузер молча игнорирует). Но нам и
-// не нужно ничего доставать из готового файла: во время записи мы и так
-// уже рисуем каждый кадр в S.canvasEl (см. canvas.js/drawFrame) - канвас
-// хранит последний нарисованный кадр вплоть до следующей записи, поэтому
-// превью можно просто снять с него, ДО stopStream(), одним синхронным
-// toDataURL(), без какого-либо декодирования видео.
+import { stopStream } from './camera.js';
+import { S } from './state.js';
+import { showModal, showRecordingControls } from './ui.js';
+
+
+// Для кружков кадр из готового webm достать ненадёжно (recording.js, ui/chat-view/video-poster/index.js: MediaRecorder не пишет индекс кадров, currentTime игнорируется).
+// Но во время записи каждый кадр уже рисуется в S.canvasEl (canvas.js/drawFrame) и хранится до следующей записи,
+// поэтому превью снимаем с него ДО stopStream() одним синхронным toDataURL().
 const THUMB_MAX_DIM = 240;
+
+export function stopAndShowPreview(){
+  if(S.mediaRecorder && S.mediaRecorder.state !== 'inactive'){ S.discardOnStop = false; S.mediaRecorder.stop(); }
+}
+
+export function cancelRecording(){
+  if(S.mediaRecorder && S.mediaRecorder.state !== 'inactive'){ S.discardOnStop = true; S.mediaRecorder.stop(); }
+  else{ stopStream(); showModal(false); }
+}
 
 function captureCanvasThumb(){
   try{
     if(!S.canvasEl) return null;
     return encodeThumbFromSource(S.canvasEl, THUMB_MAX_DIM);
-  }catch(e){
+  }catch{
     return null;
   }
 }
 
-// MediaRecorder пишет webm БЕЗ длительности в заголовке (Segment/Info идёт с
-// unknown-size, известное ограничение самого API, а не наш баг) - именно
-// из-за этого у кружков вообще не работала перемотка/прогресс-бар и не
-// захватывался кадр-превью нормальным способом (currentTime молча
-// игнорировался браузером). fix-webm-duration патчит уже готовый blob:
-// дописывает Duration в Segment/Info по измеренному нами реальному времени
-// записи (S.startedAt) - после этого кружок ведёт себя как обычный video-файл
-// с корректной длительностью и рабочей перемоткой.
+// MediaRecorder пишет webm без длительности (Segment/Info с unknown-size - ограничение API): у кружков не работали перемотка/прогресс-бар и захват кадра.
+// fix-webm-duration дописывает Duration в Segment/Info по измеренному времени записи (S.startedAt) - кружок ведёт себя как обычное видео.
 export async function onRecorderStop(){
   const usedMimeType = (S.mediaRecorder && S.mediaRecorder.mimeType) || 'video/webm';
-  // Снимаем превью ДО stopStream(): последний кадр ещё лежит в канвасе -
-  // stopStream() сам канвас не трогает (только останавливает треки), но
-  // нет смысла зависеть от порядка, если запись всё равно отменяется.
+  // Превью снимаем ДО stopStream(): последний кадр ещё в канвасе (stopStream() его не трогает, но не зависим от порядка при отмене).
   const thumbB64url = (S.discardOnStop || S.chunks.length === 0) ? null : captureCanvasThumb();
   stopStream();
   const preview = $('video-note-preview');
@@ -60,11 +57,8 @@ export async function onRecorderStop(){
   const durationMs = Date.now() - S.startedAt;
   try{
     S.recordedBlob = await fixWebmDuration(rawBlob, durationMs, {logger: false});
-  }catch(e){
-    // Патчинг - это just байтовая правка уже готового файла, а не
-    // повторное кодирование, так что почти никогда не должен падать; но
-    // если браузер прислал что-то совсем не по спеке EBML - лучше кружок
-    // без рабочей перемотки, чем полный отказ отправки сообщения.
+  }catch{
+    // Патч - правка байтов готового файла, почти не падает; при невалидном EBML лучше кружок без перемотки, чем отказ отправки.
     S.recordedBlob = rawBlob;
   }
   S.recordedUrl = URL.createObjectURL(S.recordedBlob);
@@ -72,10 +66,8 @@ export async function onRecorderStop(){
   preview.muted = false;
   preview.controls = true;
   preview.loop = true;
-  preview.play().catch(() => {});
-  // iOS Safari игнорирует controlsList="nofullscreen" и может открыть
-  // системный fullscreen-плеер по тапу на видео - сразу закрываем его,
-  // чтобы кружок не разворачивался на весь экран.
+  playQuietly(preview);
+  // iOS Safari игнорирует controlsList="nofullscreen" и может открыть системный fullscreen по тапу - сразу закрываем.
   preview.addEventListener('webkitbeginfullscreen', () => {
     if(preview.webkitExitFullscreen) preview.webkitExitFullscreen();
   });

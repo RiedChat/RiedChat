@@ -7,65 +7,48 @@
   width:26px; height:26px; border-radius:50%; flex-shrink:0; padding:0;
   border:none; cursor:pointer; -webkit-appearance:none; appearance:none;
   display:flex; align-items:center; justify-content:center;
-  /* не полагаемся на currentColor/наследование - у <button> в WebView оно
-     ненадёжно (плюс Android force-dark может перекрашивать нативные кнопки),
-     поэтому цвета жёстко заданы по направлению сообщения ниже. */
+  /* цвета заданы жёстко по направлению сообщения: currentColor ненадёжен у <button> в WebView, Android force-dark перекрашивает кнопки */
   forced-color-adjust:none;
 }
 .msg-row.out .voice-play{ background:var(--paper); }
 .msg-row.in .voice-play{ background:var(--ink); }
 .voice-play svg{ width:11px; height:11px; }
 .voice-play .ic-play{ margin-left:2px; } /* оптическая центровка треугольника */
+/* видимая иконка - по aria-pressed (wireVoiceAudio) */
+.voice-play[aria-pressed="true"] .ic-play{ display:none; }
+.voice-play[aria-pressed="false"] .ic-pause{ display:none; }
 .msg-row.out .voice-play svg{ fill:var(--ink); }
 .msg-row.in .voice-play svg{ fill:var(--paper); }
 .voice-body{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
-.voice-wave{ display:block; width:100%; height:14px; cursor:pointer; }
+.voice-wave{ position:relative; display:block; width:100%; height:14px; cursor:pointer; }
+/* Волна - два слоя одинаковых баров (waveform-player.js): тусклый и яркий .played, обрезанный по --p (доля воспроизведённого, 0..1). */
+.voice-wave .bars{ position:absolute; inset:0; display:flex; align-items:center; gap:1px; }
+.voice-wave .bars i{ flex:1; min-height:2px; border-radius:999px; background:currentColor; }
+.voice-wave .bars:not(.played){ opacity:.35; }
+.voice-wave .played{ clip-path:inset(0 calc((1 - var(--p, 0)) * 100%) 0 0); }
 .voice-time{
-  font-family:'IBM Plex Mono',monospace; font-size:0.5938rem; opacity:.6; line-height:1;
+  font-family:'IBM Plex Mono',monospace; font-size:0.5938rem; line-height:1;
 }
 
-/* Компактный пузырь для голосового/аудио-сообщения без сопровождающего текста -
-   почти без лишних отступов вокруг плеера (не "встык", как фото/видео, - плееру
-   нужен контраст с фоном, но лишнюю высоту убираем).
-   Тем же приёмом, что и для .media-frame ниже: заставляем сам пузырь плотно
-   облегать плеер (align-items:flex-start + жёсткий max-height + overflow:hidden),
-   а не полагаться на auto-высоту, которую что-то по пути раздувает. */
+/* Компактный пузырь голосового/аудио без текста: пузырь плотно облегает плеер (align-items:flex-start + max-height + overflow:hidden), а не auto-высота. */
 .bubble.voice-only{
   display:flex; align-items:flex-start;
   padding:6px 8px 20px;
   max-height:62px; overflow:hidden; /* 6 (padding-top) + 34 (media-frame) + 20 (padding-bottom) + запас */
 }
 .bubble.voice-only .media-frame{
-  display:flex; align-items:flex-start; /* контент прижимаем к началу блока, а не туда,
-    куда его сейчас толкает неизвестная причина (см. диагностику ниже) */
-  max-height:34px; overflow:hidden; /* жёстко обрезаем любую паразитную высоту снизу,
-    раз содержимое теперь у верхнего края - обрежется именно лишний хвост, не сам плеер */
+  display:flex; align-items:flex-start; /* контент к началу блока */
+  max-height:34px; overflow:hidden; /* обрезаем паразитную высоту снизу */
 }
 
-/* Время сообщения - в правом нижнем углу пузыря поверх контента (переиспользуем
-   .bubble-time.overlay из media-messages.css: position:absolute, вне потока -
-   не влияет на раскладку/высоту плеера). У фото/видео там текст всегда белый
-   с тенью (для контраста с любой картинкой) - тут фон сплошной (paper/ink),
-   поэтому цвет берём по направлению сообщения и тень убираем, она не нужна. */
-.bubble.voice-only .bubble-time.overlay{ text-shadow:none; }
-.msg-row.out .bubble.voice-only .bubble-time.overlay{ color:var(--paper); }
-.msg-row.in .bubble.voice-only .bubble-time.overlay{ color:var(--ink); opacity:.6; }
-.msg-row.out .bubble.voice-only .bubble-time.overlay{ opacity:.7; }
+/* Время в правом нижнем углу поверх контента (.bubble-time.overlay из media-messages.css, вне потока). Фон сплошной - плашка и тень убраны, цвет от пузыря. */
+.bubble.voice-only .bubble-time.overlay{ background:none; padding:0; color:inherit; }
 
-/* Подстраховка: если плеер всё же смонтирован внутри обычного (не voice-only)
-   пузыря - например, само сообщение смешанное - он не должен растягивать
-   пузырь пустым местом, а должен ужиматься под свой реальный размер.
-   Обычный класс, а не :has() - :has() не поддерживается частью Android WebView
-   и правило на нём там просто молча не применяется. */
+/* Если плеер в обычном (не voice-only) пузыре, он ужимается под свой размер. Класс вместо :has() - :has() не работает в части Android WebView. */
 .media-embed.audio-embed{ display:inline-block; line-height:normal; }
 
-/* ==================== карточка трека (музыка с ID3-тегами) ====================
-   Как в Telegram: обложка/иконка слева с play-кнопкой поверх, справа -
-   название и (пока не играет) "длительность • исполнитель", а во время
-   воспроизведения вторая строка превращается в бегунок с таймкодом.
-   Пузырь тут заметно выше обычного голосового - снимаем фиксированный
-   max-height/overflow:hidden воронки .voice-only, которые расчитаны на
-   низкую волновую строку. */
+/* ==================== карточка трека (музыка с ID3) ==================== */
+/* Обложка с play слева; справа название и "длительность • исполнитель", при воспроизведении - бегунок с таймкодом. Снят max-height/overflow:hidden от .voice-only. */
 .bubble.voice-only.has-track{
   max-height:none; overflow:visible;
   padding:8px 10px 22px;
@@ -84,21 +67,17 @@
 .track-avatar-fallback{
   width:100%; height:100%; display:flex; align-items:center; justify-content:center;
 }
-.msg-row.out .track-avatar-fallback{ background:var(--paper-10); }
-.msg-row.in .track-avatar-fallback{ background:var(--ink-10); }
-.track-avatar-fallback svg{ width:20px; height:20px; opacity:.6; fill:currentColor; }
+.track-avatar-fallback{ border:1px solid currentColor; border-radius:50%; }
+.track-avatar-fallback svg{ width:20px; height:20px; fill:currentColor; }
 
-/* play-кнопка лежит поверх обложки по центру - полупрозрачный тёмный кружок,
-   чтобы силуэт треугольника/паузы читался на любой обложке. */
-.track-play{
-  position:absolute; inset:0; width:100%; height:100%; border-radius:50%;
-  background:rgba(0,0,0,.38);
+/* play поверх обложки по центру: чёрный кружок с белой обводкой. .msg-row перебивает .msg-row.out/.in .voice-play. */
+.msg-row .track-avatar .track-play{
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+  width:26px; height:26px; background:var(--paper); border:1px solid var(--ink);
 }
-.track-play svg{ width:15px; height:15px; }
+.track-play svg{ width:11px; height:11px; }
 .track-play .ic-play{ margin-left:2px; }
-.track-play svg, .track-play .ic-play, .track-play .ic-pause{ fill:#fff; }
-.msg-row.in .track-avatar-fallback + .track-play,
-.track-avatar-fallback + .track-play{ background:rgba(0,0,0,.30); }
+.msg-row .track-play svg, .msg-row .track-play .ic-play, .msg-row .track-play .ic-pause{ fill:var(--ink); }
 
 .track-body{ flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
 .track-title{
@@ -106,15 +85,14 @@
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 .track-static{
-  font-family:'IBM Plex Mono',monospace; font-size:0.6562rem; opacity:.6; line-height:1.3;
+  font-family:'IBM Plex Mono',monospace; font-size:0.6562rem; line-height:1.3;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 .track-dot{ margin:0 4px; }
-.track-artist{ opacity:.9; }
 
 .track-progress{ display:flex; align-items:center; gap:7px; }
 .track-time{
-  font-family:'IBM Plex Mono',monospace; font-size:0.625rem; opacity:.65; flex-shrink:0;
+  font-family:'IBM Plex Mono',monospace; font-size:0.625rem; flex-shrink:0;
   min-width:24px;
 }
 .track-bar{
@@ -122,12 +100,12 @@
   cursor:pointer; touch-action:none;
 }
 .track-bar::before{
-  content:''; position:absolute; left:0; right:0; top:50%; height:2px;
-  transform:translateY(-50%); border-radius:2px;
-  background:currentColor; opacity:.25; /* цвет текста пузыря - чёрный на белом "out", белый на чёрном "in" */
+  content:''; position:absolute; left:0; right:0; top:50%; height:0;
+  transform:translateY(-50%);
+  border-top:2px dotted currentColor; /* пунктир - весь трек, сплошная - проиграно */
 }
 .track-bar-fill{
-  position:absolute; left:0; top:50%; height:2px; transform:translateY(-50%);
+  position:absolute; left:0; top:50%; height:3px; transform:translateY(-50%);
   border-radius:2px; width:0%; background:currentColor;
 }
 .track-bar-dot{

@@ -1,117 +1,103 @@
 // ===================== crypto/omemo/device-list-discovery.js =====================
 // Получение чужого device-list (omemo:2): сеть, кэш, обработка pubsub-пушей.
 // Установление сессии на конкретное устройство - в session-builder.js.
-import { NS_PUBSUB, NS_OMEMO_DEVICES, IQ_TIMEOUT_MS } from '../../core/constants.js';
-import { omemo } from './state.js';
+import { NS_PUBSUB, NS_OMEMO_DEVICES } from '../../core/constants.js';
 import { debugLog } from '../../core/debug-log.js';
+import { sendIqAsync, iqErrorCondition } from '../../core/iq.js';
 
-// ВАЖНО: без явного таймаута Strophe.Connection.sendIQ ждёт ответ сервера
-// БЕСКОНЕЧНО - ни onSuccess, ни onError не вызываются, если ответный <iq>
-// просто не пришёл (потерян, сервер перегружен/подвис и т.п.). На практике
-// это давало эффект "сообщения зависают на шифровании на 10-20 минут без
-// единой ошибки" ровно тогда, когда серверу было чем заняться (например,
-// сразу после передачи крупного файла через HTTP Upload). Явный таймаут
-// гарантирует, что промис settled в разумный срок, а errback (уже умеющий
-// обрабатывать errStanza === null как "нет ответа/таймаут") корректно
-// превратит зависание в обычную ошибку.
+import { omemo } from './state.js';
 
-// Кэш device-list считается пригодным без обращения к сети, пока не придёт
-// pubsub-пуш об изменении узла (см. _applyPushedDeviceList и обработчик
-// pubsub#event в net/messaging/incoming.js) либо пока не истечёт эта подстраховка на
-// случай, если push потерялся (сервер/контакт не поддерживает +notify,
-// разрыв соединения между публикацией и подпиской и т.п.). Раньше здесь стоял
-// безусловный forceRefresh на КАЖДУЮ отправку сообщения - это гарантировало
-// актуальность ценой сетевого round-trip перед каждым send. Теперь
-// актуальность поддерживается пушами, а этот TTL - только сеть безопасности.
+// Без таймаута Strophe sendIQ ждёт ответ бесконечно (сообщения зависали на шифровании на 10-20 минут).
+// sendIqAsync (core/iq.js) всегда передаёт таймаут, catch превращает errStanza === null в ошибку.
+
+// Кэш device-list пригоден без сети, пока не придёт pubsub-пуш (_applyPushedDeviceList,
+// pubsub#event в net/messaging/incoming.js) или не истечёт этот TTL - страховка на случай потерянного пуша.
 const STALE_FALLBACK_MS = 30 * 60 * 1000;
 
-// Отдельный, короткий TTL для случая "запрос вообще не удался" (PEP-узла ещё
-// нет / сервер не ответил) - совсем не то же самое, что "спросили и получили
-// подтверждённый пустой список". Раньше оба случая падали в один и тот же
-// deviceListCache с одним STALE_FALLBACK_MS: `fresh:false` ставился, но
-// isFresh ниже всё равно смотрит на `Date.now() - cached.ts < STALE_FALLBACK_MS`,
-// а ts у свежего проваленного запроса == "только что" - то есть следующие
-// 30 минут запрос фактически не повторялся, хотя комментарий обещал обратное.
-// Именно это и рвёт шифрование сразу после добавления контакта: PEP-узел
-// собеседника ещё не существует (он не логинился с этим клиентом ни разу),
-// _fetchDeviceListRaw падает, пустой результат кэшируется - и следующие 30
-// минут все сообщения уходят с запросом "отправить незашифрованным?", даже
-// если собеседник за это время зашёл и опубликовал ключи (push долетит,
-// только если presence-подписка уже взаимная - а на новом контакте это ещё
-// не так, см. features/contacts.js/net/roster.js:addContact и presence
-// subscribe-флоу в net/presence/incoming.js).
+// Короткий TTL для случая "запрос не удался" (PEP-узла ещё нет / сервер не ответил), отличный от
+// подтверждённого пустого списка. Иначе проваленный запрос кэшировался на весь STALE_FALLBACK_MS,
+// и после добавления контакта (узел ещё не создан) сообщения 30 минут уходили с вопросом
+// "отправить незашифрованным?": пуш приходит только при взаимной presence-подписке
+// (features/contacts.js, net/roster.js:addContact, net/presence/incoming.js).
 const FAILED_FETCH_RETRY_MS = 15 * 1000;
+
+// device id из <device id="..."/> внутри el (ответ на items-запрос или тело pubsub-пуша).
+const parseDeviceIds = (el) => Array.from(el.querySelectorAll('device'))
+  .map(d => parseInt(d.getAttribute('id'), 10))
+  .filter(n => !isNaN(n));
 
 Object.assign(omemo, {
   // ---------- получение чужого device-list ----------
   async _fetchDeviceListRaw(bareJid){
     const { $iq } = window;
-    return new Promise((resolve, reject) => {
-      const iq = $iq({type:'get', to: bareJid})
-        .c('pubsub', {xmlns: NS_PUBSUB})
-        .c('items', {node: NS_OMEMO_DEVICES});
-      this.connection.sendIQ(iq, (res) => {
-        const devices = res.querySelectorAll('device');
-        const ids = Array.from(devices).map(d => parseInt(d.getAttribute('id'), 10)).filter(n => !isNaN(n));
-        debugLog('RAW IQ-result devicelist(v2) от ' + bareJid + ': ' + new XMLSerializer().serializeToString(res));
-        resolve(ids);
-      }, (errStanza) => {
-        const cond = errStanza ? errStanza.querySelector('error') : null;
-        const condName = cond ? Array.from(cond.children).map(c => c.tagName).join(',') : 'нет ответа/таймаут';
-        reject(new Error(condName));
-      }, IQ_TIMEOUT_MS);
-    });
+    const iq = $iq({type:'get', to: bareJid})
+      .c('pubsub', {xmlns: NS_PUBSUB})
+      .c('items', {node: NS_OMEMO_DEVICES});
+    let res;
+    try{
+      res = await sendIqAsync(iq, undefined, this.connection);
+    }catch(errStanza){
+      throw new Error(iqErrorCondition(errStanza), { cause: errStanza });
+    }
+    const ids = parseDeviceIds(res);
+    debugLog('RAW IQ-result devicelist(v2) от ' + bareJid + ': ' + new XMLSerializer().serializeToString(res));
+    return ids;
   },
 
-  // Вызывается из обработчика pubsub-события, когда сервер сам присылает нам
-  // изменившийся device-list узла bareJid - это единственный надёжный триггер
-  // "кэш устарел", не требующий лишнего IQ (ids приезжают прямо в теле пуша).
+  // Вызывается из обработчика pubsub-события при пуше device-list узла bareJid:
+  // ids в теле пуша, лишний IQ не нужен.
   _applyPushedDeviceList(bareJid, ids){
-    const learned = this.learnedDevices[bareJid];
-    const merged = learned ? Array.from(new Set([...ids, ...learned.ids])) : ids;
-    this.deviceListCache[bareJid] = {ids: merged, ts: Date.now(), protocol: 'v2', fresh: true};
-    this.chatSupport[bareJid] = merged.length > 0;
+    const merged = this._setDeviceList(bareJid, ids);
     debugLog('devicelist(v2) ' + bareJid + ': обновлено пушем, [' + merged.join(',') + ']');
   },
 
-  // Разбирает <event xmlns='.../pubsub#event'><items node='...'><item><devices>...
-  // приходящее либо от сервера контакта (когда ОН публикует новый device-list, а
-  // наш сервер авто-подписал нас благодаря нашим +notify caps), либо от нашего же
-  // сервера при публикации с другого нашего устройства. Список устройств приезжает
-  // прямо в теле пуша - дополнительный IQ-запрос не нужен.
+  // Разбирает <event xmlns='.../pubsub#event'><items node='...'><item><devices>...:
+  // пуш от сервера контакта или от нашего сервера (публикация с другого нашего устройства).
   handlePubsubEvent(bareJid, eventEl){
     const itemsEl = eventEl.querySelector('items');
     if(!itemsEl || itemsEl.getAttribute('node') !== NS_OMEMO_DEVICES) return; // не наш узел
 
     const retractEl = itemsEl.querySelector('retract');
     if(retractEl){
-      // Узел ретрактнут целиком (например, контакт вычеркнул устройство при выходе,
-      // см. retractSelf()) - считаем список устройств пустым до следующего успешного fetch.
+      // Узел ретрактнут целиком (напр. retractSelf()) - список пуст до следующего успешного fetch.
       this._applyPushedDeviceList(bareJid, []);
       return;
     }
     const devicesEl = itemsEl.querySelector('item > devices');
     if(!devicesEl) return;
-    const ids = Array.from(devicesEl.querySelectorAll('device'))
-      .map(d => parseInt(d.getAttribute('id'), 10)).filter(n => !isNaN(n));
-    this._applyPushedDeviceList(bareJid, ids);
+    this._applyPushedDeviceList(bareJid, parseDeviceIds(devicesEl));
   },
 
-  async getDeviceList(bareJid, forceRefresh){
+  // Единственное место записи deviceListCache/chatSupport. К ids добавляются learnedDevices
+  // (приоритетнее PEP). fresh:false - свежесть только по TTL; confirmed - см. FAILED_FETCH_RETRY_MS.
+  // Возвращает итоговый список ids.
+  _setDeviceList(bareJid, ids, {fresh = true, confirmed} = {}){
+    const learned = this.learnedDevices[bareJid];
+    const ignored = this.ignoredDevices[bareJid];
+    const all = learned ? Array.from(new Set([...ids, ...learned.ids])) : ids;
+    const merged = ignored ? all.filter(id => !ignored.has(id)) : all;
+    const rec = {ids: merged, ts: Date.now(), fresh};
+    if(confirmed !== undefined) rec.confirmed = confirmed;
+    this.deviceListCache[bareJid] = rec;
+    this.chatSupport[bareJid] = merged.length > 0;
+    return merged;
+  },
+
+  // Параллельные вызовы для одного bareJid (несколько сообщений подряд, шифрование + расшифровка) делят один IQ.
+  getDeviceList(bareJid, forceRefresh){
     const cached = this.deviceListCache[bareJid];
-    // "Свежо", если явно помечено пушем как fresh, либо ещё не истёк
-    // подстраховочный TTL - и вызывающий код не настаивает на forceRefresh
-    // (сейчас это делает только явное ручное "обновить ключи" в UI, если есть).
-    // confirmed !== false: и явный push (fresh:true), и подтверждённый пустой
-    // список (confirmed:true) живут полный STALE_FALLBACK_MS. Непровалившийся-
-    // но-неподтверждённый запрос (confirmed:false - PEP-узла ещё не было/сервер
-    // не ответил) считается свежим только FAILED_FETCH_RETRY_MS - иначе только
-    // что добавленный контакт, который ещё не успел опубликовать ключи, застревает
-    // без OMEMO на все 30 минут вместо пары секунд ретрая.
     const ttl = (cached && cached.confirmed === false) ? FAILED_FETCH_RETRY_MS : STALE_FALLBACK_MS;
     const isFresh = cached && (cached.fresh || (Date.now() - cached.ts) < ttl);
-    if(!forceRefresh && isFresh) return cached.ids;
+    if(!forceRefresh && isFresh) return Promise.resolve(cached.ids);
 
+    const inflight = (this._deviceListInflight = this._deviceListInflight || {});
+    if(!inflight[bareJid]){
+      inflight[bareJid] = this._loadDeviceList(bareJid).finally(() => { delete inflight[bareJid]; });
+    }
+    return inflight[bareJid];
+  },
+
+  async _loadDeviceList(bareJid){
     let pepIds = null;
     try{
       pepIds = await this._fetchDeviceListRaw(bareJid);
@@ -120,31 +106,14 @@ Object.assign(omemo, {
       debugLog('devicelist(v2) ' + bareJid + ' FAIL: ' + e.message);
     }
 
-    // PEP-узел может врать (мёртвый item от старого клиента/теста, который никто не чистил).
-    // То, что мы реально видели во входящих sid (learnedDevices), - более надёжный источник.
-    const learned = this.learnedDevices[bareJid];
-    let finalIds = pepIds || [];
-    if(learned){
-      finalIds = Array.from(new Set([...finalIds, ...learned.ids]));
+    // PEP-узел может врать (мёртвый item старого клиента). learnedDevices (реально виденные sid) надёжнее,
+    // объединение делает _setDeviceList.
+    if(pepIds === null && !this.learnedDevices[bareJid]){
+      // Ни PEP, ни история ничего не дали - устройств нет, но confirmed:false:
+      // повтор через FAILED_FETCH_RETRY_MS, а не через STALE_FALLBACK_MS.
+      return this._setDeviceList(bareJid, [], {fresh: false, confirmed: false});
     }
 
-    if(pepIds === null && !learned){
-      // Ни PEP, ни исторические данные ничего не дали - считаем, что устройств нет,
-      // но помечаем confirmed:false, чтобы следующий getDeviceList (без forceRefresh)
-      // повторил попытку уже через FAILED_FETCH_RETRY_MS, а не через полный
-      // 30-минутный STALE_FALLBACK_MS (см. комментарий у FAILED_FETCH_RETRY_MS выше).
-      this.deviceListCache[bareJid] = {ids: [], ts: Date.now(), protocol: 'v2', fresh: false, confirmed: false};
-      this.chatSupport[bareJid] = false;
-      return [];
-    }
-
-    this.deviceListCache[bareJid] = {ids: finalIds, ts: Date.now(), protocol: 'v2', fresh: true, confirmed: true};
-    this.chatSupport[bareJid] = finalIds.length > 0;
-    return finalIds;
-  },
-
-  // Оставлен для обратной совместимости вызовов из trust.js/UI - протокол теперь всегда один.
-  protocolFor(_bareJid){
-    return 'v2';
+    return this._setDeviceList(bareJid, pepIds || [], {confirmed: true});
   },
 });

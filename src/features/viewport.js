@@ -1,79 +1,38 @@
 // ===================== features/viewport.js =====================
-// Держит высоту #app в синхроне с РЕАЛЬНО видимой частью экрана на мобильных
-// устройствах и допинывает список сообщений обратно вниз, когда экранная
-// клавиатура открывается/закрывается.
+// Синхронизирует высоту #app с реально видимой областью на мобильных и прижимает список сообщений к низу при открытии/закрытии клавиатуры.
 //
-// ПРОБЛЕМА: у #app было `height:100vh` (см. css/sidebar.css). На мобильных
-// браузерах при открытии клавиатуры layout viewport (от которого считается
-// vh) чаще всего НЕ уменьшается - клавиатура просто перекрывает собой низ
-// страницы. #messages при этом честно скроллится в свой scrollHeight (низ
-// СПИСКА), но этот низ физически скрыт под клавиатурой - на экране виден
-// более ранний участок переписки, будто новое сообщение "осталось выше",
-// а не внизу.
-//
-// РЕШЕНИЕ: 100dvh в CSS уже чинит это в большинстве современных браузеров.
-// Здесь - JS-фолбэк через window.visualViewport (шире поддержан, есть и в
-// старых WebView без dvh) плюс главное: при каждом изменении видимой высоты
-// (открыли/закрыли клавиатуру) - если пользователь и так был внизу списка -
-// снова прижимаем #messages к низу, чтобы последнее сообщение гарантированно
-// оказалось видно над клавиатурой, а не под ней.
-import { $ } from '../core/dom-utils.js';
-import { throttle } from '../core/timing.js';
+// Проблема: при height:100vh (css/sidebar.css) клавиатура не уменьшает layout viewport, а перекрывает низ страницы;
+// #messages скроллится в свой низ, но тот скрыт под клавиатурой.
+// Решение: 100dvh в CSS чинит большинство браузеров; здесь JS-фолбэк через visualViewport (есть в старых WebView без dvh)
+// и при смене видимой высоты, если пользователь был внизу, снова прижимаем #messages к низу.
+import { $, isNearBottom, scrollToBottom } from '../core/dom-utils.js';
 
 export function wireViewport(){
   const vv = window.visualViewport;
 
-  function applyHeight(){
-    // Высота реально видимой области - от visualViewport, если браузер его
-    // поддерживает (учитывает клавиатуру), иначе просто innerHeight.
-    const h = vv ? vv.height : window.innerHeight;
-    document.documentElement.style.setProperty('--app-vh', h + 'px');
-  }
-
-  function isNearBottom(el, tolerancePx){
-    return (el.scrollHeight - el.scrollTop - el.clientHeight) <= tolerancePx;
-  }
-
-  let wasNearBottomBeforeResize = true;
-
-  function handleResize(){
-    const messagesEl = $('messages');
-    // Запоминаем ДО изменения высоты - как и в features/composer.js:
-    // после applyHeight() #messages физически станет ниже (клавиатура
-    // открылась) или выше (закрылась), и тот же scrollTop уже не будет
-    // означать "внизу".
-    if(messagesEl) wasNearBottomBeforeResize = isNearBottom(messagesEl, 48);
-
-    applyHeight();
-
-    // Даём браузеру один кадр на реальный реflow под новую высоту, и только
-    // потом поджимаем к низу - если делать это в тот же тик, scrollHeight
-    // ещё может быть посчитан по старой высоте контейнера.
-    requestAnimationFrame(() => {
-      if(messagesEl && wasNearBottomBeforeResize){
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-      }
-    });
-  }
+  // Видимая высота: visualViewport (учитывает клавиатуру), иначе innerHeight.
+  const applyHeight = () =>
+    document.documentElement.style.setProperty('--app-vh', (vv?.height ?? window.innerHeight) + 'px');
 
   applyHeight();
 
-  // visualViewport на iOS шлёт 'scroll' на каждый кадр анимации клавиатуры
-  // (десятки событий за долю секунды) - без throttle handleResize гонял бы
-  // scrollHeight/reflow на каждый такой кадр. 32мс (два кадра) достаточно,
-  // чтобы не быть заметным глазу, но заметно снизить нагрузку; trailing-вызов
-  // throttle гарантирует, что финальное положение клавиатуры всё равно
-  // обработается, даже если события перестали сыпаться внутри окна throttle.
-  const throttledResize = throttle(handleResize, 32);
+  // iOS шлёт visualViewport "scroll" на каждый кадр анимации клавиатуры; обработка раз в кадр (requestAnimationFrame) снижает нагрузку,
+  // последний вызов в кадре гарантирует обработку финального положения.
+  let rafId = 0;
+  const onResize = () => {
+    rafId ||= requestAnimationFrame(() => {
+      rafId = 0;
+      const el = $('messages');
+      // Запоминаем ДО смены высоты (как в composer.js, через core/dom-utils.js:isNearBottom): после applyHeight() прежний scrollTop уже не означает "внизу".
+      const stick = el && isNearBottom(el);
+      applyHeight();
+      // Ждём один кадр на reflow, затем прижимаем к низу: в тот же тик scrollHeight может быть по старой высоте.
+      if(stick) requestAnimationFrame(() => scrollToBottom(el));
+    });
+  };
 
-  if(vv){
-    vv.addEventListener('resize', throttledResize);
-    // На iOS открытие клавиатуры иногда даёт ТОЛЬКО scroll-событие
-    // visualViewport (без resize), если страница при этом не меняла layout.
-    vv.addEventListener('scroll', throttledResize);
-  } else {
-    // Совсем старые браузеры без visualViewport - хотя бы обычный resize
-    // (сработает не для всех клавиатур, но лучше, чем ничего).
-    window.addEventListener('resize', throttledResize);
-  }
+  // Без visualViewport - обычный resize окна (не для всех клавиатур, но лучше чем ничего).
+  (vv ?? window).addEventListener('resize', onResize);
+  // На iOS клавиатура иногда даёт только "scroll" visualViewport без "resize".
+  vv?.addEventListener('scroll', onResize);
 }

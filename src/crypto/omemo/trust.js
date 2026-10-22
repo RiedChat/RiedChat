@@ -1,51 +1,44 @@
 // ===================== crypto/omemo/trust.js =====================
-// Доверие / отпечатки ключей (fingerprints) - свой и контактов, отметка "проверен".
-import { bytes as B } from '../bytes.js';
+// Доверие/отпечатки ключей (свой и контактов), отметка "проверен".
+import * as B from '../bytes.js';
+
 import { omemo } from './state.js';
 
 Object.assign(omemo, {
   // ---------- доверие / отпечатки ----------
   hexFingerprint(buf){
-    const bytes = new Uint8Array(buf);
-    let hex = Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join('');
-    return hex.match(/.{1,8}/g).join(' ');
+    return B.bytesToHex(buf).match(/.{1,8}/g).join(' ');
   },
-  async myFingerprint(){
+  myFingerprint(){
     if(!this.ready) return null;
     return this.hexFingerprint(this.identityKeyPair.pubKey);
+  },
+  // raw - сохранённый base64 identity key (или null, если ключа нет).
+  async _fingerprintEntry(addr, deviceId, raw){
+    const verified = raw ? await this.store.isVerified(addr) : false;
+    return { deviceId, fingerprint: raw ? this.hexFingerprint(B.bufFromB64(raw)) : null, verified, addr };
   },
   async contactFingerprints(bareJid){
     const ids = await this.getDeviceList(bareJid);
     const out = [];
     for(const id of ids){
       const addr = new libsignal.SignalProtocolAddress(bareJid, id).toString();
-      // Устройство, у которого недавно сменился ключ, скрываем из списка,
-      // пока с ним не установится НОВАЯ сессия (см. crypto/identity-store.js:
-      // isPendingReverify/clearPendingReverify) - иначе пользователь отмечал
-      // бы проверенным ключ, который libsignal через мгновение снова
-      // перезапишет при следующем сообщении с тем же устройством.
+      // Устройство с недавно сменившимся ключом скрываем, пока не установится НОВАЯ сессия
+      // (identity-store.js: isPendingReverify/clearPendingReverify) - иначе пользователь отметит
+      // проверенным ключ, который libsignal тут же перезапишет.
       if(await this.store.isPendingReverify(addr)) continue;
       let raw = await this.store.getIdentityRaw(addr);
       if(!raw){
-        // сессии ещё нет - попробуем достать identity key прямо из bundle
-        try{ const b = await this._fetchBundle(bareJid, id); raw = B.b64FromBuf(b.identityKey); }catch(e){ /* пропустим */ }
+        // сессии нет - берём identity key из bundle
+        try{ const b = await this._fetchBundle(bareJid, id); raw = B.b64FromBuf(b.identityKey); }catch{ /* пропустим */ }
       }
-      const verified = raw ? await this.store.isVerified(addr) : false;
-      out.push({ deviceId: id, fingerprint: raw ? this.hexFingerprint(B.bufFromB64(raw)) : null, verified, addr });
+      out.push(await this._fingerprintEntry(addr, id, raw));
     }
     return out;
   },
-  async setVerified(addr, verified){
-    await this.store.setVerified(addr, verified);
-  },
-  // "Мёртвые" identity - устройства, чей ключ мы когда-то запомнили (доверенный
-  // или даже отмеченный проверенным), но которых больше НЕТ в текущем
-  // device-list контакта. Типичная причина - контакт переустановил клиент и
-  // получил новый device-id: это не "смена ключа у того же устройства"
-  // (см. isPendingReverify выше), а появление нового устройства + осиротевшее
-  // старое, которое сам протокол никогда не удалит - контакт больше не
-  // публикует retract на старый device-id, просто перестаёт им пользоваться.
-  // Раньше такой ключ так и оставался в списке доверенных навсегда.
+  // "Мёртвые" identity: ключ запомнен (в т.ч. проверенный), но устройства нет в текущем device-list контакта
+  // (напр. переустановка клиента с новым device-id; retract на старый id контакт не публикует).
+  // Это не смена ключа того же устройства (isPendingReverify), а новое устройство + осиротевшее старое.
   async orphanedFingerprints(bareJid){
     const currentIds = new Set((await this.getDeviceList(bareJid)).map(String));
     const prefix = bareJid + '.';
@@ -55,34 +48,44 @@ Object.assign(omemo, {
       const deviceId = addr.slice(prefix.length);
       if(currentIds.has(deviceId)) continue; // всё ещё актуальное устройство - не осиротевшее
       const raw = await this.store.getIdentityRaw(addr);
-      const verified = raw ? await this.store.isVerified(addr) : false;
-      out.push({ deviceId, fingerprint: raw ? this.hexFingerprint(B.bufFromB64(raw)) : null, verified, addr });
+      out.push(await this._fingerprintEntry(addr, deviceId, raw));
     }
     return out;
   },
-  // Ручное "забыть устройство" - для осиротевших identity из orphanedFingerprints
-  // (см. выше), а также как аварийный выход для пользователя, который прямо
-  // не доверяет конкретному устройству и не хочет ждать, пока оно само
-  // отвалится из списка. Чистит identity+verified+pendingReverify И сессию -
-  // если контакт когда-нибудь всё же пришлёт с этого device-id сообщение
-  // снова, TOFU отработает с нуля, как для совсем нового устройства.
-  async forgetDevice(bareJid, addr){
-    await this.store.identity.deleteIdentity(addr);
+  // Ручное "забыть устройство": для осиротевших identity (orphanedFingerprints) и недоверия конкретному устройству.
+  // Чистит identity+verified+pendingReverify и сессию - при новом сообщении с этого device-id TOFU пройдёт заново.
+  async forgetDevice(addr){
+    await this.store.deleteIdentity(addr);
     await this.store.removeSession(addr);
+    // Одного удаления ключа мало: id остаётся в deviceListCache/learnedDevices/PEP-списке контакта, окно показывает
+    // устройство снова, а encryptFor() заново строит сессию и занимает слот. Поэтому id ещё и игнорируем,
+    // пока устройство само не пришлёт сообщение (_learnIncomingDevice снимает игнор).
+    const { bare, id } = this._splitAddr(addr);
+    await this.store._set('ignoredDevice', addr, true);
+    (this.ignoredDevices[bare] = this.ignoredDevices[bare] || new Set()).add(id);
+    this.learnedDevices[bare]?.ids.delete(id);
+    const cached = this.deviceListCache[bare];
+    if(cached) cached.ids = cached.ids.filter(x => x !== id);
+  },
+  _splitAddr(addr){
+    const i = addr.lastIndexOf('.');
+    return { bare: addr.slice(0, i), id: parseInt(addr.slice(i + 1), 10) };
+  },
+  async _loadIgnoredDevices(){
+    this.ignoredDevices = {};
+    const prefix = this.store._k('ignoredDevice');
+    for(const k of await this.store.idb.keys(prefix)){
+      const { bare, id } = this._splitAddr(k.slice(prefix.length));
+      (this.ignoredDevices[bare] = this.ignoredDevices[bare] || new Set()).add(id);
+    }
   },
 
-  // ---------- лимит запоминаемых устройств на контакта ----------
-  async getMaxDevicesPerContact(){
-    return await this.store.identity.getMaxDevicesPerContact();
-  },
-  async setMaxDevicesPerContact(n){
-    return await this.store.identity.setMaxDevicesPerContact(n);
-  },
-  // Устройства, чей ключ пришёл, когда для контакта уже было занято все
-  // слоты (см. crypto/identity-store.js:isTrustedIdentity) - ждут решения
-  // пользователя: заменить один из существующих или просто освободить слот.
+  // ---------- устройства сверх лимита на контакта ----------
+  // Лимит - omemo.store.getMaxDevicesPerContact/setMaxDevicesPerContact.
+  // Устройства, чей ключ пришёл при занятых слотах (identity-store.js:isTrustedIdentity), ждут решения пользователя:
+  // заменить существующее или освободить слот.
   async pendingSlotDevices(bareJid){
-    const entries = await this.store.identity.listPendingSlotDevices(bareJid);
+    const entries = await this.store.listPendingSlotDevices(bareJid);
     return entries.map(e => ({
       deviceId: e.identifier.slice((e.bareJid + '.').length),
       fingerprint: this.hexFingerprint(B.bufFromB64(e.b64)),
@@ -90,20 +93,10 @@ Object.assign(omemo, {
       ts: e.ts,
     }));
   },
-  // Принимает новое устройство на место evictAddr (если указан) - тогда
-  // старый ключ/сессия сначала полностью забываются (как forgetDevice), а
-  // затем ключ из очереди становится доверенным. Без evictAddr - просто
-  // пробуем принять (сработает, только если к этому моменту слот уже
-  // освободился, например пользователь удалил другое устройство отдельно).
-  async acceptPendingDevice(bareJid, newAddr, evictAddr){
-    if(evictAddr){
-      await this.forgetDevice(bareJid, evictAddr);
-    }
-    return await this.store.identity.resolvePendingSlot(newAddr);
-  },
-  // Отклонить новое устройство - просто забыть его ключ из очереди, не
-  // освобождая и не занимая ни один слот.
-  async discardPendingDevice(newAddr){
-    await this.store.identity.discardPendingSlotDevice(newAddr);
+  // Принимает новое устройство на место evictAddr (если указан): старый ключ/сессия забываются (как forgetDevice),
+  // затем ключ из очереди становится доверенным. Без evictAddr сработает, только если слот уже свободен.
+  async acceptPendingDevice(newAddr, evictAddr){
+    if(evictAddr) await this.forgetDevice(evictAddr);
+    return this.store.resolvePendingSlot(newAddr);
   },
 });

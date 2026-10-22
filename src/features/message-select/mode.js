@@ -1,48 +1,35 @@
 // ============== features/message-select/mode.js ==============
-// Управление режимом выбора: включение/выключение, переключение конкретной
-// строки, переприменение UI после внешнего renderMessages().
+// Режим выбора: включение/выключение, переключение строки, синхронизация UI с state.selecting.
 import { $ } from '../../core/dom-utils.js';
 import { state } from '../../core/state.js';
+
 import { msgIdByRow, setBarCount, applySelectionClasses } from './dom.js';
 
-const S = state;
-
-export function enterSelectMode(){
-  if(S.selecting) return;
-  S.selecting = new Set();
+// Приводит UI к state.selecting: класс режима на контейнере, "selected" на строках, счётчик. Вызывается при входе/выходе и после внешнего renderMessages();
+// режим и id хранятся в state.selecting, теряются только CSS-классы на пересозданных строках.
+export function syncSelectionUI(){
   const conv = $('conversation');
-  if(conv) conv.classList.add('selecting');
+  if(conv) conv.classList.toggle('selecting', !!state.selecting);
+  applySelectionClasses();
   setBarCount();
 }
 
 export function exitSelectMode(){
-  if(!S.selecting) return;
-  S.selecting = null;
-  const conv = $('conversation');
-  if(conv) conv.classList.remove('selecting');
-  applySelectionClasses();
-  setBarCount();
-}
-
-// Переприменяет UI режима выбора после внешнего renderMessages() (например,
-// пришло новое сообщение, пока пользователь отмечал старые) - сам режим и
-// набор отмеченных id хранятся в S.selecting и renderMessages их не трогают,
-// теряются только CSS-классы на пересозданных DOM-строках.
-export function reapplySelectionUI(){
-  if(!S.selecting) return;
-  const conv = $('conversation');
-  if(conv) conv.classList.add('selecting');
-  applySelectionClasses();
-  setBarCount();
+  if(!state.selecting) return;
+  state.selecting = null;
+  syncSelectionUI();
 }
 
 export function toggleRow(row){
   const id = msgIdByRow(row);
   if(!id) return;
-  if(!S.selecting) enterSelectMode();
-  if(S.selecting.has(id)) S.selecting.delete(id);
-  else S.selecting.add(id);
-  row.classList.toggle('selected', S.selecting.has(id));
+  if(!state.selecting){
+    state.selecting = new Set();
+    syncSelectionUI();
+  }
+  if(state.selecting.has(id)) state.selecting.delete(id);
+  else state.selecting.add(id);
+  row.classList.toggle('selected', state.selecting.has(id));
   setBarCount();
-  if(S.selecting.size === 0) exitSelectMode();
+  if(state.selecting.size === 0) exitSelectMode();
 }

@@ -1,56 +1,25 @@
 // ===================== features/theme-settings.js =====================
-// Тёмная/светлая тема интерфейса - предпочтение конкретного устройства
-// (как шрифт в features/font-settings/ и направление свайпа в
-// swipe-settings.js), не привязано к аккаунту. Переключается атрибутом
-// data-theme на <html>, который CSS-переменные в css/base.css и подхватывают
-// (см. :root[data-theme="light"]). Применяется СРАЗУ по клику на чекбокс в
-// модалке профиля, не дожидаясь кнопки "Сохранить" - так удобнее оценить
-// результат, не тыкая туда-сюда.
-import { lsGet, lsSet } from '../core/storage.js';
+// Тема тёмная/светлая - настройка устройства (как шрифт и свайп), не аккаунта. Переключается атрибутом data-theme на <html> (css/base.css, :root[data-theme="light"]).
+// Применяется и сохраняется сразу по клику на чекбокс в профиле, без "Сохранить" (поэтому commit() не нужен и в sections модалки профиля модуль не входит).
 import { $ } from '../core/dom-utils.js';
+import { lsGet, lsSet } from '../core/storage.js';
 
-const KEY = 'xmppChatTheme';
+const KEY = 'xmppChatTheme'; // 'dark' (по умолчанию) или 'light'
 
-// 'dark' (по умолчанию) - исходная тёмная тема. 'light' - светлая.
-export function loadTheme(){
-  return lsGet(KEY, 'dark');
-}
-export function saveTheme(theme){
-  lsSet(KEY, theme === 'light' ? 'light' : 'dark');
-}
+const applyTheme = (theme) => { document.documentElement.dataset.theme = theme; };
 
-export function applyTheme(theme){
-  if(theme === 'light') document.documentElement.setAttribute('data-theme', 'light');
-  else document.documentElement.removeAttribute('data-theme');
-}
+// Применяется при импорте (main.js, сразу после core/storage.js), а не из wireEvents() в app.js: document.documentElement есть с начала парсинга, тема ставится до отрисовки интерфейса.
+applyTheme(lsGet(KEY, 'dark'));
 
-// Применяется один раз при старте приложения - до первого рендера чата,
-// чтобы не было мигания тёмной темой перед переключением на светлую.
-export function applyStoredTheme(){
-  applyTheme(loadTheme());
-}
-// Вызывается сразу при импорте модуля (см. main.js - импорт стоит одним из
-// первых, сразу после core/storage.js), а не из wireEvents() в app.js:
-// document.documentElement существует уже в момент начала парсинга HTML,
-// так что тему можно проставить ДО того, как отрисуется остальной интерфейс,
-// и не будет короткого мигания тёмной темой перед светлой.
-applyStoredTheme();
-
-// Проставляет чекбокс модалки профиля из сохранённых настроек.
+// Чекбокс профиля из сохранённой темы.
 export function openInModal(){
-  $('theme-light-toggle').checked = loadTheme() === 'light';
-}
-// Читает чекбокс модалки профиля и сохраняет (тема уже применена live-
-// обработчиком в wireThemeSettings, здесь просто фиксируем в тот же
-// localStorage-ключ на случай, если commit() вызывается независимо).
-export function commit(){
-  saveTheme($('theme-light-toggle').checked ? 'light' : 'dark');
+  $('theme-light-toggle').checked = lsGet(KEY, 'dark') === 'light';
 }
 
 export function wireThemeSettings(){
   $('theme-light-toggle').addEventListener('change', (e) => {
     const theme = e.target.checked ? 'light' : 'dark';
     applyTheme(theme);
-    saveTheme(theme);
+    lsSet(KEY, theme);
   });
 }

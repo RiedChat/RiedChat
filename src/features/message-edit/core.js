@@ -1,78 +1,59 @@
 // ============ features/message-edit/core.js ============
-// Общая логика режима редактирования: поиск сообщения по DOM-строке,
-// проверка редактируемости, запуск и отмена правки. Используется всеми
-// обработчиками жестов (two-finger.js, mouse-buttons.js, click-triggers.js).
-import { $ } from '../../core/dom-utils.js';
+// Общая логика режима редактирования: поиск сообщения по DOM-строке, проверка редактируемости, старт и отмена правки.
+// Используется two-finger.js, click-triggers.js.
+import { $, fireInput } from '../../core/dom-utils.js';
 import { state } from '../../core/state.js';
-import { renderReplyBar } from '../../ui/chat-head.js';
 import { splitQuotedBody } from '../../core/text-patterns.js';
+import { renderReplyBar } from '../../ui/chat-head.js';
+import { msgByRow } from '../message-select/dom.js';
 
-export const S = state;
-
-// Максимальный интервал между двумя тапами/кликами по одному и тому же
-// сообщению, чтобы засчитать их как "два тапа, значит редактируем" - не
-// полагаемся на нативный dblclick: на тачскринах он не всегда доходит до
-// страницы (может быть съеден системным жестом зума).
+// Макс. интервал между двумя тапами/кликами по сообщению; нативный dblclick не используем - на тачскринах его может съесть системный зум.
 export const DOUBLE_TAP_MS = 350;
 
-export function msgByRow(row){
-  // Пока активен режим множественного выбора сообщений (см.
-  // features/message-select.js), тап/жест по строке должен только выбирать
-  // её, а не запускать редактирование - отдаём null, все три триггера
-  // редактирования (two-finger.js, mouse-buttons.js, click-triggers.js)
-  // считают это "сообщение не найдено" и ничего не делают.
-  if(S.selecting) return null;
-  const list = S.messages[S.activeChat] || [];
-  const idx = Number(row.dataset.idx);
-  return Number.isInteger(idx) ? (list[idx] || null) : null;
-}
-
-// Редактировать можно только своё текстовое сообщение. У пузырей-медиа
-// (фото/видео/голосовое/файл) в bubble.dataset.kind стоит их тип (см.
-// ui/chat-view/bubble-renderers.js) - у обычного текстового пузыря этот
-// атрибут не проставляется вовсе.
+// Редактировать можно только своё текстовое сообщение: у медиа-пузырей в bubble.dataset.kind стоит тип (ui/chat-view/bubble-renderers.js), у текстового его нет.
 function isEditable(msg, bubble){
   if(!msg || !msg.out) return false;
-  const kind = bubble && bubble.dataset.kind;
+  const kind = bubble?.dataset.kind;
   return !kind;
 }
 
 export function startEdit(msg, bubble){
   if(!isEditable(msg, bubble)) return;
-  S.replyTo = null; // редактирование и цитирование взаимоисключающи
-  // Если сообщение было ответом с цитатой (см. net/messaging/outgoing.js:
-  // buildQuotedBody), в поле ввода должен попасть только реальный текст -
-  // блок цитаты не редактируется и не должен маячить как обычный текст.
-  // quotePrefix запоминаем, чтобы вернуть цитату на место при отправке правки
-  // (см. sendCurrentMessage в net/messaging/outgoing.js).
-  const split = splitQuotedBody(msg.body || '');
+  state.replyTo = null; // редактирование и цитирование взаимоисключающи
+  // Если сообщение было ответом с цитатой (net/messaging/outgoing.js:buildQuotedBody), в поле идёт только текст;
+  // quotePrefix запоминаем, чтобы вернуть цитату при отправке правки (sendCurrentMessage).
+  const split = splitQuotedBody(msg.body);
   const editableText = split ? split.rest : (msg.body || '');
-  S.editing = { id: msg.id, quotePrefix: split ? split.prefix : '' };
+  state.editing = { id: msg.id, quotePrefix: split ? split.prefix : '' };
   renderReplyBar();
   const input = $('msg-input');
   if(input){
     input.value = editableText;
-    // Пересчитывает высоту textarea и видимость кнопок отправки/микрофона -
-    // тот же обработчик 'input', что и при обычном наборе текста
-    // (features/composer.js), без дублирования этой логики здесь.
-    input.dispatchEvent(new Event('input', {bubbles:true}));
+    // Пересчёт высоты textarea и кнопок отправки/микрофона - тот же "input"-обработчик, что в features/composer.js.
+    fireInput(input);
     input.focus();
     const len = input.value.length;
-    try{ input.setSelectionRange(len, len); }catch(e){ /* не критично, если браузер не поддержал */ }
+    try{ input.setSelectionRange(len, len); }catch{ /* не критично */ }
   }
   if(navigator.vibrate) navigator.vibrate(12);
 }
 
-// Отменяет режим редактирования и очищает поле ввода - вызывается по клику
-// на плашку (см. features/message-swipe.js:wireMessageSwipe, тот же
-// обработчик, что закрывает и цитату) и при переключении на другой чат.
+// Цепочка "строка -> сообщение + .bubble -> startEdit" для всех жестов.
+export function startEditForRow(row){
+  const msg = msgByRow(row);
+  const bubble = row.querySelector('.bubble');
+  if(!msg || !bubble) return;
+  startEdit(msg, bubble);
+}
+
+// Отменяет редактирование и очищает поле; вызывается кликом по плашке (features/message-swipe/wire.js:wireMessageSwipe) и при смене чата.
 export function cancelEdit(){
-  if(!S.editing) return;
-  S.editing = null;
+  if(!state.editing) return;
+  state.editing = null;
   renderReplyBar();
   const input = $('msg-input');
   if(input){
     input.value = '';
-    input.dispatchEvent(new Event('input', {bubbles:true}));
+    fireInput(input);
   }
 }

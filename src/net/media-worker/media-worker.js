@@ -1,41 +1,25 @@
 // ===================== net/media-worker/media-worker.js =====================
-// Вынесенные из media.js в отдельный Worker: скачивание зашифрованного
-// (aesgcm://, XEP-0454) файла, его расшифровка AES-256-GCM и запись/чтение
-// постоянного кэша в IndexedDB (та же база и то же хранилище 'mediaCache',
-// что использует net/history.js на главном потоке).
+// Worker: скачивание aesgcm:// (XEP-0454) файла, расшифровка AES-256-GCM и запись/чтение
+// постоянного кэша в IndexedDB (та же база и store 'mediaCache', что в history.js).
 //
-// ЗАЧЕМ: раньше весь этот путь (fetch + сборка ArrayBuffer + IndexedDB.put)
-// выполнялся в главном потоке вкладки. Для больших файлов (видео) запись
-// blob'а в IndexedDB - синхронная операция, которая на время блокирует
-// вкладку: WebSocket-фреймы не обрабатываются вовремя, и исходящие
-// сообщения зависают в очереди, пока блокировка не пройдёт. Раньше это
-// "лечили" тем, что в постоянный кэш вообще не писали файлы крупнее 25 МБ -
-// но тогда видео просто никогда не кэшировались и перекачивались заново
-// при каждом открытии чата.
+// ЗАЧЕМ: запись больших blob'ов (видео) в IndexedDB блокирует главный поток - WebSocket-фреймы
+// не обрабатываются, исходящие зависают. В воркере это не влияет на главный поток,
+// поэтому лимит размера файла для кэша снят (см. media.js).
 //
-// Здесь весь этот код выполняется в собственном потоке воркера - что бы
-// внутри ни происходило (сеть, crypto.subtle, IndexedDB), на обработку
-// WebSocket-фреймов и отправку сообщений в главном потоке это не влияет.
-// Поэтому лимит на размер можно снять: см. media.js (там его больше нет).
-//
-// Module Worker: инстанцируется из net/media/worker-client.js через
-// `new Worker(new URL('../media-worker/media-worker.js', import.meta.url), { type: 'module' })`.
-// Vite видит этот паттерн и бандлит воркер вместе со всеми его import'ами
-// (mime.js, fetch-decrypt.js, media-cache-shared.js) в один отдельный
-// минифицированный чанк - отдельно от главного бандла (свой поток
-// исполнения), но так же проходя через сборщик.
+// Module Worker: создаётся в net/media/worker-client.js через
+// `new Worker(new URL('../media-worker/media-worker.js', import.meta.url), { type: 'module' })`;
+// Vite бандлит его с импортами (mime.js, fetch-decrypt.js, media-cache-shared.js) в отдельный чанк.
+import { reqToPromise } from '../../core/idb.js';
+import { DB_VERSION, upgradeSchema } from '../history/schema.js';
 import { getMediaEntry, putMediaEntry, evictMediaCache } from '../media-cache-shared.js';
+
 import { fetchAndDecrypt } from './fetch-decrypt.js';
 
-// ---- IndexedDB: та же база/версия/схема, что и net/history/db.js ----
+// ---- IndexedDB: та же база/версия/схема, что в net/history.js ----
 let dbPromise = null;
 let openedDbName = null;
-// CryptoKey шифрования медиа-кэша, полученный один раз от главного потока
-// (см. net/media/worker-client.js:sendCacheKeyToWorker) - воркер сам не
-// может обратиться к vault/UI за passphrase/биометрией. До получения ключа
-// 'decrypt'/'store' сообщения (которые трогают mediaCache) ставятся в
-// очередь и обрабатываются, как только ключ придёт - тот же гоночный
-// сценарий, что уже решён для onmessage ниже, только на один шаг раньше.
+// CryptoKey медиа-кэша, полученный от главного потока (net/media/worker-client.js:sendCacheKeyToWorker):
+// воркер не может запросить passphrase/биометрию. До его получения 'decrypt'/'store' ставятся в очередь.
 let cacheKey = null;
 let cacheKeyResolve;
 const cacheKeyReady = new Promise(resolve => { cacheKeyResolve = resolve; });
@@ -43,21 +27,10 @@ const cacheKeyReady = new Promise(resolve => { cacheKeyResolve = resolve; });
 function openDb(dbName){
   if(dbPromise && openedDbName === dbName) return dbPromise;
   openedDbName = dbName;
-  dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(dbName, 3);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if(!db.objectStoreNames.contains('threads')) db.createObjectStore('threads');
-      if(!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
-      if(!db.objectStoreNames.contains('mediaCache')) db.createObjectStore('mediaCache');
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-    // onblocked здесь не страшен: если апгрейд ведёт вкладка, воркер просто
-    // подождёт своей открытой копии базы - сообщение всё равно рано или
-    // поздно обработается, а на отправку сообщений в главном потоке это
-    // никак не влияет (мы в отдельном потоке).
-  });
+  // onblocked не страшен: воркер дождётся своей копии базы, главный поток не затрагивается.
+  const req = indexedDB.open(dbName, DB_VERSION);
+  req.onupgradeneeded = () => upgradeSchema(req.result);
+  dbPromise = reqToPromise(req);
   return dbPromise;
 }
 
@@ -76,7 +49,7 @@ self.onmessage = async (ev) => {
       const db = await openDb(dbName);
       const key = cacheKey || await cacheKeyReady;
       const cached = await getMediaEntry(db, msg.url, key);
-      if(cached && cached.blob){
+      if(cached?.blob){
         self.postMessage({ type:'result', reqId, ok:true, blob: cached.blob, kind: cached.kind, fromCache: true });
         return;
       }
@@ -84,30 +57,26 @@ self.onmessage = async (ev) => {
         self.postMessage({ type:'progress', reqId, pct });
       }, msg.allowedHosts, msg.senderDomain);
       self.postMessage({ type:'result', reqId, ok:true, blob, kind, fromCache: false });
-      // Пишем в постоянный кэш и чистим лишнее уже ПОСЛЕ ответа - это не
-      // задерживает показ файла пользователю, и, поскольку мы в воркере,
-      // никак не сказывается на отправке сообщений в главном потоке.
+      // Запись в кэш и чистка - ПОСЛЕ ответа: не задерживает показ файла.
       try{
         await putMediaEntry(db, msg.url, blob, kind, key);
         await evictMediaCache(db);
       }catch(e){
-        self.postMessage({ type:'cache-write-error', reqId, error: (e && e.message) || String(e) });
+        self.postMessage({ type:'cache-write-error', reqId, error: e?.message || String(e) });
       }
       return;
     }
 
     if(type === 'store'){
-      // Используется для собственных отправленных файлов (primeLocalBlob в media.js):
-      // главный поток уже показал их пользователю локально, здесь только
-      // фоново сохраняем в постоянный кэш.
+      // Для своих отправленных файлов (primeLocalBlob в media.js): главный поток уже показал их
+      // локально, здесь только фоновое сохранение в кэш.
       const db = await openDb(dbName);
       const key = cacheKey || await cacheKeyReady;
       await putMediaEntry(db, msg.url, msg.blob, msg.kind, key);
       await evictMediaCache(db);
       self.postMessage({ type:'stored', reqId, ok:true });
-      return;
     }
   }catch(e){
-    self.postMessage({ type:'result', reqId, ok:false, error: (e && e.message) || String(e) });
+    self.postMessage({ type:'result', reqId, ok:false, error: e?.message || String(e) });
   }
 };

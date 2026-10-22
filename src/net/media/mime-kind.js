@@ -1,76 +1,93 @@
 // ===================== net/media/mime-kind.js =====================
-// Чистые функции определения типа медиа по MIME или расширению файла.
-// Выделено из net/media.js - не зависят ни от кэша, ни от воркера,
-// поэтому тестируются и переиспользуются независимо (см. net/upload.js).
+// Чистые функции определения типа медиа по MIME/расширению (без кэша и воркера; см. net/upload.js).
+import { extOf as extOfName } from '../../core/text-patterns.js';
+import * as bytes from '../../crypto/bytes.js';
 
-export function kindOfMime(mime){
-  if(!mime) return null;
-  if(mime.startsWith('image/')) return 'image';
-  if(mime.startsWith('video/')) return 'video';
-  if(mime.startsWith('audio/')) return 'audio';
-  return null;
+export const MIME_BY_EXT = {
+  jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', gif:'image/gif', webp:'image/webp',
+  mp4:'video/mp4', webm:'video/webm', mov:'video/quicktime', ogv:'video/ogg',
+  mp3:'audio/mpeg', oga:'audio/ogg', ogg:'audio/ogg', wav:'audio/wav', m4a:'audio/mp4', opus:'audio/ogg',
+  weba:'audio/webm'
+};
+
+const kindOfMime = (mime) =>
+  ['image', 'video', 'audio'].find(k => mime?.startsWith(k + '/')) ?? null;
+
+// Схема зашифрованного вложения (XEP-0454): aesgcm://...
+export const isAesgcm = (url) => /^aesgcm:\/\//i.test(url);
+
+const stripUrl = (url) => String(url || '').split('?')[0].split('#')[0];
+const baseName = (url) => stripUrl(url).split('/').pop() || '';
+
+export const extOf = (url) => extOfName(stripUrl(url));
+
+// Кодирует имя файла в хвост ';n=<base64url>' (обратная операция - fileNameOf).
+export const fileNameFragment = (name) =>
+  'n=' + bytes.toBase64Url(bytes.b64FromBuf(bytes.utf8ToBuf(name)));
+
+// Разбор содержимого ссылки ПОСЛЕ '#':
+//   <hex(iv+key)>[;t=<base64url(jpeg)>][;n=<base64url(utf8 имени)>]
+// Хвосты - в любом порядке; у обычных https-ссылок ключа может не быть (фрагмент начинается с 'n=').
+// Возвращает {keyHex, thumb, name}: thumb - base64url-превью или null (нет/не base64url -
+// защита от мусора, см. thumb-codec.js); name - имя файла или null.
+export function parseAesgcmFragment(fragment){
+  const parts = String(fragment || '').split(';');
+  const keyHex = /^[tn]=/.test(parts[0]) ? '' : parts.shift();
+  let thumb = null;
+  let name = null;
+  for(const part of parts){
+    const m = /^([tn])=([A-Za-z0-9_-]+)$/.exec(part);
+    if(!m) continue;
+    if(m[1] === 't'){
+      thumb ??= m[2];
+    }else if(name === null){
+      try{ name = bytes.bufToUtf8(bytes.bufFromB64(bytes.fromBase64Url(m[2]))); }catch{}
+    }
+  }
+  return { keyHex, thumb, name };
 }
 
-export function extOf(url){
-  const clean = url.split('?')[0].split('#')[0];
-  const m = clean.match(/\.([a-z0-9]+)$/i);
-  return m ? m[1].toLowerCase() : '';
-}
-
-// Настоящее имя файла из ссылки (для превью/скачивания generic-файлов -
-// .apk/.zip/.pdf и т.п., см. ui/chat-view/bubble-renderers.js и
-// ui/chat-view/media-loader.js). Работает и для aesgcm://, и для обычных
-// https:// ссылок - хвост после # (ключ/превью) и query-параметры уже
-// отрезаны до вызова decodeURIComponent, чтобы percent-encoding из самого
-// имени файла не ломался на невалидной последовательности.
+// Имя файла из ссылки (для превью/скачивания generic-файлов; см. ui/chat-view/bubble-renderers.js,
+// ui/chat-view/media-loader/encrypted-media.js). Для aesgcm:// и https://: хвост после # и query
+// отрезаются до decodeURIComponent, чтобы percent-encoding не ломался.
 export function fileNameOf(url){
   const str = String(url || '');
-  const m = str.match(/[;#]n=([A-Za-z0-9_-]+)/);
-  if(m){
-    try{ return decodeURIComponent(escape(atob(m[1].replace(/-/g,'+').replace(/_/g,'/')))); }catch(e){}
+  const hashIdx = str.indexOf('#');
+  if(hashIdx !== -1){
+    const { name } = parseAesgcmFragment(str.slice(hashIdx + 1));
+    if(name) return name;
   }
-  const clean = str.split('#')[0].split('?')[0];
-  const last = clean.split('/').pop() || '';
-  try{ return decodeURIComponent(last); }catch(e){ return last; }
+  const last = baseName(str);
+  try{ return decodeURIComponent(last); }catch{ return last; }
 }
 
-export function kindOf(ext){
-  if(['jpg','jpeg','png','gif','webp'].includes(ext)) return 'image';
-  if(['mp4','webm','mov','ogv'].includes(ext)) return 'video';
-  if(['mp3','oga','ogg','wav','m4a','opus','weba'].includes(ext)) return 'audio';
-  return 'file';
+export const kindOf = (ext) => kindOfMime(MIME_BY_EXT[ext]) || 'file';
+
+// Вид вложения по File/Blob: MIME, затем расширение. Возвращает 'image' | 'video' | 'audio' | 'file'.
+export const kindOfFile = (file) => kindOfMime(file.type) || kindOf(extOf(file.name || ''));
+
+// Кружки (features/video-note.js) уходят как обычное video/webm; маркер "рисовать круглым" -
+// префикс "videonote-" в имени файла (сохраняется в URL сервером, XEP-0363).
+const nameMatches = (re) => (url) => re.test(baseName(url));
+export const isVideoNote = nameMatches(/^videonote-/i);
+
+// Стикеры (features/stickers/*) - обычное image-вложение, маркер - префикс в имени файла
+// (features/stickers/panel-state.js:sendStickerById).
+export const isSticker = nameMatches(/^sticker-/i);
+
+// Пак стикеров (features/stickers/share.js:buildStickerPackFile) - JSON со всеми стикерами.
+// Маркер - имя файла "stickers.json" целиком (содержимое от имени пака не зависит).
+// По нему features/stickers/pack-card.js показывает карточку "Добавить пак".
+export const isStickerPack = nameMatches(/^stickers\.json$/i);
+
+// "Особый" вид вложения: кружок и стикер отличаются только префиксом имени (isVideoNote/isSticker).
+// Возвращает 'videonote' | 'sticker' | kind. Используется в features/message-search,
+// features/message-swipe/shared.js:mediaLabel, features/autoload-settings.js:shouldHoldOff.
+export function categoryOf(kind, url){
+  if(kind === 'video' && isVideoNote(url)) return 'videonote';
+  if(kind === 'image' && isSticker(url)) return 'sticker';
+  return kind;
 }
 
-// Круглые видео-сообщения ("кружки", features/video-note.js) уходят как
-// обычное video/webm-вложение (тот же пайплайн загрузки/расшифровки, что и
-// у любого видео), поэтому единственный маркер, что их нужно рисовать
-// круглыми, а не в стандартной 16:9-рамке, - префикс "videonote-" в имени
-// файла, который сохраняется в URL сервером загрузки (XEP-0363).
-export function isVideoNote(url){
-  const clean = String(url || '').split('?')[0].split('#')[0];
-  const name = clean.split('/').pop() || '';
-  return /^videonote-/i.test(name);
-}
-
-// Стикеры (features/stickers/*) - тоже обычное image-вложение, тот же
-// принцип различения по префиксу в имени файла, что и у кружков выше
-// (см. features/stickers/panel-state.js:sendStickerById).
-export function isSticker(url){
-  const clean = String(url || '').split('?')[0].split('#')[0];
-  const name = clean.split('/').pop() || '';
-  return /^sticker-/i.test(name);
-}
-
-// Пак стикеров целиком (features/stickers/share.js:buildStickerPackFile) -
-// zip-архив со всеми стикерами пака, отправляется как обычное вложение.
-// Маркер - фиксированное имя файла "stickers.zip" (тот же принцип, что и у
-// isSticker/isVideoNote выше, только по имени целиком, а не по префиксу -
-// само содержимое архива не привязано к конкретному имени пака, поэтому
-// имя файла не может его нести). См. features/stickers/pack-card.js -
-// именно по этому маркеру входящий zip разворачивается в карточку
-// "Добавить пак" вместо обычной ссылки на файл.
-export function isStickerPack(url){
-  const clean = String(url || '').split('?')[0].split('#')[0];
-  const name = clean.split('/').pop() || '';
-  return /^stickers\.zip$/i.test(name);
-}
+// Зашифрованные вложения (XEP-0454): aesgcm://host/path#<hex(iv+key)> + необязательные хвосты ';t=<base64url>' (превью), ';n=<base64url>' (имя).
+export const AESGCM_RE = /aesgcm:\/\/[^\s#]+#[0-9a-fA-F]+(?:;(?:t|n)=[A-Za-z0-9_-]+)*/g;

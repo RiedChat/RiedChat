@@ -1,135 +1,113 @@
 // ===================== net/roster.js =====================
-// Загрузка ростера (списка контактов), добавление контактов, XEP-0012 last-activity.
-// Выделено из net/connection.js.
-import { NS_LAST } from '../core/constants.js';
-import { toast } from '../core/dom-utils.js';
-import { loadLastScreen, loadLastSeenMap, persistLastScreen, persistLastSeen } from '../core/last-seen-storage.js';
-import { state } from '../core/state.js';
-import { omemo } from '../crypto/omemo/state.js';
-import { debugLog } from '../core/debug-log.js';
-import { loadContactNickMap, loadContactAvatarMap } from './vcard-storage.js';
-import { renderRoster } from '../ui/roster.js';
-import { renderChatHead } from '../ui/chat-head.js';
+// Загрузка ростера, добавление контактов, XEP-0012 last-activity. Из net/connection.js.
 import { openChat } from '../app.js';
-import { markContactTrusted } from './trusted-contacts.js';
+import { NS_LAST } from '../core/constants.js';
+import { debugLog } from '../core/debug-log.js';
+import { toast, nickOf } from '../core/dom-utils.js';
+import { sendIqSafe } from '../core/iq.js';
+import { lastScreenStore, lastSeenStore } from '../core/last-seen-storage.js';
+import { state, ensureChat } from '../core/state.js';
+import { omemo } from '../crypto/omemo/state.js';
 import { t } from '../i18n/t.js';
+import { renderChatHead } from '../ui/chat-head.js';
+import { renderRoster } from '../ui/roster.js';
 
-const S = state;
+import { markContactTrusted } from './trusted-contacts.js';
+import { contactNickStore, contactAvatarStore } from './vcard-storage.js';
+
+
 
 // ---------------- ROSTER ----------------
-// См. комментарий в crypto/omemo/device-list-discovery.js про IQ_TIMEOUT_MS: без
-// явного таймаута sendIQ может зависнуть навсегда, если сервер не ответит.
-export function fetchRoster(){
+const loadDevices = (jid, force) => omemo.getDeviceList(jid, force).then(() => renderRoster());
+
+// core/iq.js: sendIqAsync всегда передаёт таймаут, иначе sendIQ может зависнуть при молчании сервера.
+export async function fetchRoster(){
   const iq = $iq({type:'get', id:'roster1'}).c('query', {xmlns:'jabber:iq:roster'});
-  const lastSeenMap = loadLastSeenMap();
-  const nickMap = loadContactNickMap();
-  const avatarMap = loadContactAvatarMap();
-  S.connection.sendIQ(iq, (res) => {
-    const items = res.querySelectorAll('item');
-    items.forEach(item => {
-      const jid = item.getAttribute('jid');
-      const name = item.getAttribute('name') || jid.split('@')[0];
-      const subscription = item.getAttribute('subscription') || 'none';
-      S.roster[jid] = S.roster[jid] || {};
-      S.roster[jid].name = name;
-      S.roster[jid].presence = S.roster[jid].presence || 'offline';
-      S.roster[jid].lastSeen = S.roster[jid].lastSeen || lastSeenMap[jid] || null;
-      // Псевдоним/аватар, которые контакт присылал в presence в прошлых
-      // сессиях - показываем их сразу, не дожидаясь, пока контакт снова
-      // появится в сети (то же самое сделано для lastSeen выше).
-      S.roster[jid].nick = S.roster[jid].nick || nickMap[jid] || null;
-      S.roster[jid].avatarUrl = S.roster[jid].avatarUrl || (avatarMap[jid] && avatarMap[jid].dataUrl) || null;
-      S.messages[jid] = S.messages[jid] || [];
-      // ВАЖНО: если подписка не "both" (напр. контакт был добавлен ещё
-      // до того, как появилась авто-обработка presence type="subscribe"
-      // в onPresence(), - см. её комментарий), сервер НЕ будет
-      // маршрутизировать нам available/unavailable этого контакта, и
-      // статус "в сети" не покажется никогда, сколько ни жди. Сервер не
-      // обязан повторно доставлять старый зависший subscribe-стос, поэтому
-      // сами на всякий случай пере-отправляем запрос подписки - если он
-      // уже подтверждён с той стороны, это no-op, если нет - подтолкнёт
-      // недостающую половину рукопожатия.
-      if(subscription !== 'both' && subscription !== 'to'){
-        S.connection.send($pres({to: jid, type: 'subscribe'}));
-        debugLog('roster: у ' + jid + ' subscription=' + subscription + ' - повторно отправил запрос подписки (иначе онлайн-статус не придёт)');
-      }
-    });
-    renderRoster();
-    // заранее подтягиваем device-list контактов, чтобы значок замка был точным сразу
-    Object.keys(S.roster).forEach(jid => omemo.getDeviceList(jid).then(() => renderRoster()));
-    // Для контактов, которые сейчас офлайн, уточняем время выхода через
-    // XEP-0012 (last-activity) - это даёт точную метку, даже если мы сами
-    // были офлайн в момент их disconnect (см. queryLastActivity выше).
-    // Если контакт появится в сети до ответа - presence-обработчик просто
-    // перезапишет lastSeen заново при следующем его выходе, это не проблема.
-    Object.keys(S.roster).forEach(jid => {
-      if(S.roster[jid].presence !== 'online') queryLastActivity(jid);
-    });
-
-    // Восстанавливаем экран, на котором пользователь остался в прошлый раз (см.
-    // persistLastScreen): если это был конкретный чат - и контакт всё ещё
-    // есть в ростере - сразу открываем его, а не бросаем в список контактов.
-    // Если был в списке контактов (или сохранённых данных нет) - ничего не
-    // делаем, приложение и так открывается в этом состоянии по умолчанию.
-    if(!S.activeChat){
-      const lastScreen = loadLastScreen();
-      if(lastScreen && lastScreen.screen === 'chat' && lastScreen.jid && S.roster[lastScreen.jid]){
-        openChat(lastScreen.jid);
-      }
+  const lastSeenMap = lastSeenStore.all();
+  const nickMap = contactNickStore.all();
+  const avatarMap = contactAvatarStore.all();
+  const res = await sendIqSafe(iq);
+  if(!res){
+    toast(t('netRoster.loadFailed'));
+    return;
+  }
+  res.querySelectorAll('item').forEach(item => {
+    const jid = item.getAttribute('jid');
+    const subscription = item.getAttribute('subscription') || 'none';
+    ensureChat(jid);
+    const c = state.roster[jid];
+    c.name = item.getAttribute('name') || nickOf(jid);
+    c.presence ||= 'offline';
+    c.lastSeen ||= lastSeenMap[jid] || null;
+    // Ник/аватар из presence прошлых сессий показываем сразу, не дожидаясь появления контакта в сети (как lastSeen выше).
+    c.nick ||= nickMap[jid] || null;
+    c.avatarUrl ||= avatarMap[jid]?.dataUrl || null;
+    // Если подписка не "both" (контакт добавлен до авто-обработки presence subscribe в onPresence()),
+    // сервер не пришлёт его available/unavailable - "в сети" не покажется никогда. Старый зависший
+    // subscribe сервер повторно не доставляет, поэтому переотправляем запрос подписки:
+    // если подтверждён - no-op, иначе довершит рукопожатие.
+    if(subscription !== 'both' && subscription !== 'to'){
+      state.connection.send($pres({to: jid, type: 'subscribe'}));
+      debugLog('roster: у ' + jid + ' subscription=' + subscription + ' - повторно отправил запрос подписки (иначе онлайн-статус не придёт)');
     }
-  }, () => toast(t('netRoster.loadFailed')), 15000);
-}
-
-// XEP-0012: спрашиваем сервер контакта, сколько секунд назад он отключился.
-// Работает даже если МЫ сами были офлайн в момент его disconnect - в
-// отличие от presence-based lastSeen в onPresence() (net/presence/incoming.js), который видит
-// только переходы online->offline, случившиеся у нас на глазах.
-// Требует, чтобы сервер контакта поддерживал mod_last (XEP-0012); если
-// нет - сервер ответит ошибкой (feature-not-implemented/service-unavailable),
-// и мы просто остаёмся с уже известным (возможно, менее точным) значением.
-export function queryLastActivity(jid){
-  return new Promise((resolve) => {
-    if(!S.connection || !S.connection.connected){ resolve(false); return; }
-    const iq = $iq({type: 'get', to: jid}).c('query', {xmlns: NS_LAST});
-    S.connection.sendIQ(iq, (res) => {
-      const q = res.querySelector('query');
-      const seconds = q ? parseInt(q.getAttribute('seconds'), 10) : NaN;
-      if(!isNaN(seconds) && seconds >= 0){
-        const ts = Date.now() - seconds * 1000;
-        S.roster[jid] = S.roster[jid] || {name: jid.split('@')[0], presence: 'offline'};
-        // Значение с сервера считаем источником истины для офлайн-контактов:
-        // оно основано на реальном моменте disconnect, а не на том, что мы
-        // успели "поймать вживую" через presence.
-        S.roster[jid].lastSeen = ts;
-        persistLastSeen(jid, ts);
-        renderRoster();
-        if(S.activeChat === jid) renderChatHead();
-      }
-      resolve(true);
-    }, () => {
-      debugLog('last-activity: запрос к ' + jid + ' не удался (сервер не поддерживает XEP-0012, либо контакт/сервер недоступны)');
-      resolve(false);
-    }, 10000);
   });
+  renderRoster();
+  Object.keys(state.roster).forEach(jid => {
+    // заранее подтягиваем device-list контактов, чтобы значок замка был точным сразу
+    loadDevices(jid);
+    // Для офлайн-контактов уточняем время выхода через XEP-0012 (queryLastActivity) - метка точна,
+    // даже если мы были офлайн в момент их disconnect. Если контакт появится в сети до ответа,
+    // presence-обработчик перезапишет lastSeen при следующем выходе.
+    if(state.roster[jid].presence !== 'online') queryLastActivity(jid);
+  });
+
+  // Восстанавливаем прошлый экран (persistLastScreen): был чат и контакт ещё в ростере - открываем его.
+  // Иначе ничего: приложение и так открывается в списке контактов.
+  if(!state.activeChat){
+    const lastScreen = lastScreenStore.get();
+    if(lastScreen?.screen === 'chat' && lastScreen.jid && state.roster[lastScreen.jid]){
+      openChat(lastScreen.jid);
+    }
+  }
 }
 
-export function addContact(jid){
+// XEP-0012: спрашиваем сервер контакта, сколько секунд назад он отключился. Работает, даже если мы были
+// офлайн в момент его disconnect (в отличие от lastSeen из onPresence() в net/presence/incoming.js -
+// он видит только переходы online->offline при нас). Нужен mod_last на сервере контакта; иначе
+// ошибка (feature-not-implemented/service-unavailable) - остаётся прежнее, возможно менее точное значение.
+async function queryLastActivity(jid){
+  if(!state.connection?.connected) return;
+  const iq = $iq({type: 'get', to: jid}).c('query', {xmlns: NS_LAST});
+  const res = await sendIqSafe(iq, 10000);
+  if(!res){
+    debugLog('last-activity: запрос к ' + jid + ' не удался (сервер не поддерживает XEP-0012, либо контакт/сервер недоступны)');
+    return;
+  }
+  const seconds = parseInt(res.querySelector('query')?.getAttribute('seconds'), 10);
+  if(seconds >= 0){
+    const ts = Date.now() - seconds * 1000;
+    ensureChat(jid);
+    // Значение сервера - источник истины для офлайн-контактов: основано на реальном disconnect.
+    state.roster[jid].lastSeen = ts;
+    lastSeenStore.set(jid, ts);
+    renderRoster();
+    if(state.activeChat === jid) renderChatHead();
+  }
+}
+
+export async function addContact(jid){
   const iq = $iq({type:'set'}).c('query', {xmlns:'jabber:iq:roster'})
     .c('item', {jid});
-  S.connection.sendIQ(iq, () => {
-    S.connection.send($pres({to: jid, type: 'subscribe'}));
-    S.roster[jid] = {name: jid.split('@')[0], presence:'offline'};
-    S.messages[jid] = [];
-    // Ручное добавление контакта - явное действие пользователя, этого
-    // достаточно, чтобы считать контакт доверенным для автозагрузки картинок
-    // (riedchat-security-plan.md, п.5), не дожидаясь порога по числу сообщений.
-    markContactTrusted(jid);
-    renderRoster();
-    toast(t('netRoster.requestSent'));
-    omemo.getDeviceList(jid, true).then(() => renderRoster());
-  }, () => toast(t('netRoster.addFailed')), 15000);
+  if(!(await sendIqSafe(iq))){
+    toast(t('netRoster.addFailed'));
+    return;
+  }
+  state.connection.send($pres({to: jid, type: 'subscribe'}));
+  ensureChat(jid);
+  // Ручное добавление - явное действие: контакт сразу доверенный для автозагрузки картинок
+  // (riedchat-security-plan.md, п.5), без порога по числу сообщений.
+  markContactTrusted(jid);
+  renderRoster();
+  toast(t('netRoster.requestSent'));
+  loadDevices(jid, true);
 }
-
-// fetchRoster/queryLastActivity потребляются только через прямой import
-// (net/connection/bootstrap.js). addContact - через прямой import из
-// features/contacts.js. window.App-мост здесь больше не нужен.

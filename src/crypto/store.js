@@ -1,104 +1,58 @@
 // ===================== store.js =====================
-// Хранилище идентичности/сессий OMEMO поверх IndexedDB.
-// Реализует интерфейс, который ожидает libsignal-protocol.js:
-// getIdentityKeyPair, getLocalRegistrationId, isTrustedIdentity, saveIdentity,
-// loadPreKey/storePreKey/removePreKey, loadSignedPreKey/storeSignedPreKey,
-// loadSession/storeSession.
-//
-// Сам класс - тонкая композиция трёх модулей (см. crypto/idb-kv.js,
-// crypto/identity-store.js, crypto/prekey-store.js, crypto/session-store.js):
-// вся реальная логика лежит там, а SignalStore просто делегирует вызовы,
-// чтобы наружу (и для libsignal, и для остального приложения) сохранялся
-// один плоский объект с методами, как и раньше.
-import { IdbKv, EncryptedIdbKv, openOmemoDb } from './idb-kv.js';
-import { IdentityStore } from './identity-store.js';
-import { PreKeyStore } from './prekey-store.js';
-import { SessionStore } from './session-store.js';
-import { getOmemoStorageKey, forgetOmemoStorageKey } from './omemo-vault.js';
+// Хранилище идентичности/сессий OMEMO поверх IndexedDB, интерфейс для libsignal-protocol.js.
+// SignalStore - один плоский объект: методы identity-store, prekey-store, session-store
+// подмешиваются в прототип, данные хранятся в idb (idb-kv).
+import { deleteIndexedDb } from '../core/storage.js';
 import { promptVaultPassphrase } from '../ui/vault-modal.js';
-// Циклический импорт с omemo/state.js (тот импортирует createSignalStore
-// отсюда): в ES-модулях это допустимо через живые биндинги, пока к omemo
-// не обращаются на этапе загрузки модуля - deleteSignalStore читает его
-// только внутри своего тела, которое вызывается уже после того, как оба
-// модуля полностью проинициализированы.
-import { omemo } from './omemo/state.js';
-import { debugLog } from '../core/debug-log.js';
 
-// Копирует все методы прототипа source на target, привязывая их к
-// instance (source остаётся владельцем состояния и логики).
-function delegate(target, instance){
-  const proto = Object.getPrototypeOf(instance);
-  for(const name of Object.getOwnPropertyNames(proto)){
-    if(name === 'constructor') continue;
-    if(typeof instance[name] !== 'function') continue;
-    target[name] = instance[name].bind(instance);
-  }
-  return target;
-}
+import { IdbKv, EncryptedIdbKv, openOmemoDb } from './idb-kv.js';
+import { identityMethods } from './identity-store.js';
+import { getOmemoStorageKey, forgetKey } from './omemo-vault.js';
+import { preKeyMethods } from './prekey-store.js';
+import { sessionMethods } from './session-store.js';
 
 class SignalStore{
   constructor(idb, bareJid){
     this.idb = idb;
     this.ns = 'omemo:' + bareJid + ':';
-
-    this.identity = new IdentityStore(idb, this.ns);
-    this.prekeys = new PreKeyStore(idb, this.ns);
-    this.sessions = new SessionStore(idb, this.ns);
-    delegate(this, this.identity);
-    delegate(this, this.prekeys);
-    delegate(this, this.sessions);
-
-    // libsignal-protocol.js дёргает this.storage.Direction.SENDING / .RECEIVING
-    // при построении сессии (SessionBuilder.processPreKey и processV3), чтобы
-    // передать направление в isTrustedIdentity. Само значение мы игнорируем
-    // (наша isTrustedIdentity работает по чистому TOFU без учёта направления),
-    // но само свойство обязано существовать - иначе падает с
-    // "Cannot read properties of undefined (reading 'SENDING')".
+    // libsignal читает storage.Direction.SENDING/RECEIVING при построении сессии.
+    // Значение игнорируется (чистый TOFU), но свойство обязано существовать.
     this.Direction = { SENDING: 1, RECEIVING: 2 };
   }
+  // Ключ: ns + kind + ':' + id (без id - префикс для keys/entries).
+  _k(kind, id = ''){ return this.ns + kind + ':' + id; }
+  _get(kind, id){ return this.idb.get(this._k(kind, id)); }
+  _set(kind, id, value){ return this.idb.set(this._k(kind, id), value); }
+  _del(kind, id){ return this.idb.del(this._k(kind, id)); }
 }
 
+Object.assign(SignalStore.prototype, identityMethods, preKeyMethods, sessionMethods);
+
+const dbNameFor = (bareJid) => 'omemoDb_' + bareJid.replace(/[^a-zA-Z0-9]/g, '_');
+
+// Открытые соединения по имени базы: deleteSignalStore закрывает своё без обращения
+// к omemo.store (иначе циклический импорт с omemo/state.js).
+const openDbs = new Map();
+
 export async function createSignalStore(bareJid){
-  const db = await openOmemoDb('omemoDb_' + bareJid.replace(/[^a-zA-Z0-9]/g,'_'));
+  const dbName = dbNameFor(bareJid);
+  const db = await openOmemoDb(dbName);
+  openDbs.set(dbName, db);
   const rawIdb = new IdbKv(db);
-  // См. crypto/omemo-vault.js: identity/prekey/session-ключи шифруются
-  // data-key'ом, который сам защищён vault'ом (тем же, что и сохранённые
-  // учётные данные) - независимо от того, включил ли пользователь
-  // "запомнить на устройстве" при логине (persistAccount вызывается только
-  // при rememberMe, а OMEMO-ключи защищать нужно в любом случае).
-  const storageKey = await getOmemoStorageKey(bareJid, (isSetup) => promptVaultPassphrase(isSetup));
+  // Ключи identity/prekey/session шифруются data-key'ом под vault'ом (см. omemo-vault.js)
+  // независимо от rememberMe.
+  const storageKey = await getOmemoStorageKey(bareJid, promptVaultPassphrase);
   const idb = new EncryptedIdbKv(rawIdb, storageKey);
   return new SignalStore(idb, bareJid);
 }
 
-// Полное удаление базы OMEMO-ключей аккаунта с устройства (используется при
-// выходе "с концами" - см. ui/modals.js logout()). Если хранилище этой сессии
-// ещё открыто (omemo.store), сперва закрываем соединение - иначе браузер
-// заблокирует удаление до закрытия всех хендлов на эту базу.
+// Полностью удаляет базу OMEMO-ключей аккаунта (logout "с концами", ui/modals.js).
+// Открытое соединение закрываем первым, иначе удаление блокируется.
 export function deleteSignalStore(bareJid){
-  const dbName = 'omemoDb_' + bareJid.replace(/[^a-zA-Z0-9]/g,'_');
-  try{
-    if(omemo && omemo.store && omemo.store.idb && omemo.store.idb.db){
-      omemo.store.idb.db.close();
-    }
-  }catch(e){
-    // Уже закрытое соединение при повторном close() может бросить - не
-    // критично, indexedDB.deleteDatabase() ниже снесёт базу в любом случае.
-  }
-  // Зашифрованный data-key переживает удаление IndexedDB, если его не
-  // убрать явно - а без соответствующей базы он бесполезен и просто
-  // копится в localStorage от старых аккаунтов.
-  forgetOmemoStorageKey(bareJid);
-  return new Promise((resolve) => {
-    const req = indexedDB.deleteDatabase(dbName);
-    req.onsuccess = () => resolve(true);
-    req.onerror = () => {
-      debugLog('[omemo-store] не удалось удалить базу ключей: ' + (req.error && req.error.message));
-      resolve(false);
-    };
-    req.onblocked = () => {
-      debugLog('[omemo-store] удаление базы ключей заблокировано - есть другое открытое соединение (другая вкладка с этим чатом)');
-      resolve(false);
-    };
-  });
+  const dbName = dbNameFor(bareJid);
+  openDbs.get(dbName)?.close();
+  openDbs.delete(dbName);
+  // Зашифрованный data-key переживает удаление IndexedDB - убираем явно.
+  forgetKey('omemoKeys', bareJid);
+  return deleteIndexedDb(dbName);
 }

@@ -1,50 +1,28 @@
 // ===================== core/storage.js =====================
-// Общие хелперы для чтения/записи localStorage. Раньше в net/vcard.js,
-// net/connection.js, features/profile.js, features/font-settings/storage.js каждый
-// try{ JSON.parse(localStorage.getItem(key) || 'default') }catch(e){} и
-// try{ localStorage.setItem(...) }catch(e){} были продублированы по месту -
-// вынесено сюда в двух функциях.
-import { state } from './state.js';
+// Хелперы localStorage: чтение с fallback и запись с вытеснением кэшей.
 import { t } from '../i18n/t.js';
 
-// Возвращает fallback, если ключа нет, JSON битый, либо localStorage
-// недоступен (приватный режим, quota и т.п.).
+import { debugLog, errMsg } from './debug-log.js';
+import { toast } from './dom-utils.js';
+import { isQuotaError } from './idb.js';
+import { state } from './state.js';
+
+// fallback, если ключа нет, JSON битый или localStorage недоступен.
 export function lsGet(key, fallback){
   try{
     const raw = localStorage.getItem(key);
     return raw === null ? fallback : JSON.parse(raw);
-  }catch(e){ return fallback; }
-}
-
-// Кэши, которые можно безболезненно потерять: при нехватке места в
-// localStorage они удаляются первыми, чтобы освободить место под важные
-// записи (vault-блок с data-key'ями истории, настройки). Аватары контактов
-// перекачиваются из vCard при следующем presence.
-const EVICTABLE_LS_PREFIXES = ['xmppContactAvatar_'];
-
-export function isQuotaError(e){
-  if(!e) return false;
-  return e.name === 'QuotaExceededError'
-    || e.name === 'NS_ERROR_DOM_QUOTA_REACHED'
-    || e.code === 22 || e.code === 1014
-    || /quota/i.test(e.message || '');
+  }catch{ return fallback; }
 }
 
 function freeLocalStorageSpace(exceptKey){
-  let freed = false;
-  for(let i = localStorage.length - 1; i >= 0; i--){
-    const k = localStorage.key(i);
-    if(k && k !== exceptKey && EVICTABLE_LS_PREFIXES.some(p => k.startsWith(p))){
-      localStorage.removeItem(k);
-      freed = true;
-    }
-  }
-  return freed;
+  const keys = Object.keys(localStorage)
+    .filter(k => k !== exceptKey && k.startsWith('xmppContactAvatar_'));
+  keys.forEach(k => localStorage.removeItem(k));
+  return keys.length > 0;
 }
 
-// Пишет в localStorage; при QuotaExceededError удаляет вытесняемые кэши и
-// повторяет запись один раз. Бросает исключение, если записать не удалось.
-function writeWithEviction(key, value){
+export function lsSetStrict(key, value){
   const raw = JSON.stringify(value);
   try{
     localStorage.setItem(key, raw);
@@ -54,70 +32,86 @@ function writeWithEviction(key, value){
   }
 }
 
-// Best-effort: возвращает true/false - записалось или нет. Вызывающий код,
-// для которого потеря записи критична, ОБЯЗАН проверять результат.
 export function lsSet(key, value){
-  try{ writeWithEviction(key, value); return true; }
-  catch(e){ return false; }
-}
-
-// Для критичных данных (vault-блок с ключами): бросает исключение при
-// неудаче, чтобы никто не считал данные сохранёнными, когда это не так.
-export function lsSetStrict(key, value){
-  writeWithEviction(key, value);
+  try{ lsSetStrict(key, value); return true; }
+  catch{ return false; }
 }
 
 export function lsRemove(key){
-  // См. lsSet - недоступность localStorage тут не критична: раз запись не
-  // сохранилась, удалять по факту нечего.
-  try{ localStorage.removeItem(key); }catch(e){}
+  // Недоступность localStorage не критична: удалять нечего.
+  try{ localStorage.removeItem(key); }catch{}
 }
 
-// Ключ, привязанный к текущему аккаунту (S.myBareJid) - используется для
-// всех настроек/кэшей, которые не должны утекать между разными аккаунтами
-// на одном устройстве (профиль, обои, lastSeen, lastScreen и т.п.).
+// Ключ с привязкой к аккаунту (state.myBareJid): настройки/кэши не смешиваются между аккаунтами.
 export function accountKey(prefix){
   return prefix + '_' + (state.myBareJid || '');
 }
 
-// Открывает IndexedDB-базу с защитой от "тихого" зависания: если другая
-// вкладка/окно держит открытым соединение к старой версии той же базы,
-// апгрейд блокируется браузером и ни onupgradeneeded, ни onsuccess, ни
-// onerror не срабатывают, пока то соединение не закроется. Раньше это
-// выглядело как бесконечное "устанавливаем соединение..." - теперь через
-// timeoutMs (по умолчанию 8с) промис отклоняется явной ошибкой, а
-// opts.onBlocked (если передан) даёт знать пользователю раньше таймаута.
-//
-// opts:
-//   onUpgrade(db)     - вызывается из onupgradeneeded, создать object store'ы
-//   onBlocked()        - вызывается из onblocked (лог/toast), необязательно
-//   timeoutMs           - таймаут, по умолчанию 8000
-//   timeoutMessage      - текст ошибки при таймауте
-export function openIndexedDb(dbName, version, opts){
-  opts = opts || {};
+// Одно значение в localStorage под accountKey(name): get() - прочитать, set(value) - записать; null/undefined удаляет ключ.
+export const accountValue = (name, fallback = null) => ({
+  get: () => lsGet(accountKey(name), fallback),
+  set: (value) => value == null ? lsRemove(accountKey(name)) : lsSet(accountKey(name), value),
+});
+
+// Карта jid -> значение в localStorage под accountKey(name): all() - вся карта, set/delete - точечная правка
+// (read-modify-write, возвращает результат lsSet).
+export const accountMap = (name) => {
+  const write = (mutate) => {
+    const map = lsGet(accountKey(name), {});
+    mutate(map);
+    return lsSet(accountKey(name), map);
+  };
+  return {
+    all: () => lsGet(accountKey(name), {}),
+    set: (key, value) => write(m => { m[key] = value; }),
+    delete: (key) => write(m => { delete m[key]; }),
+  };
+};
+
+// Открывает IndexedDB с таймаутом: если другая вкладка держит старую версию, апгрейд блокируется и ни один
+// колбэк не срабатывает - промис отклоняется через 8 секунд.
+// opts: onUpgrade(db) - создать object store'ы;
+//       label + lockedMessage - при onblocked: лог '[label] ...' и тост lockedMessage;
+//       timeoutMessage - текст ошибки таймаута.
+export function openIndexedDb(dbName, version, {onUpgrade, label, lockedMessage, timeoutMessage} = {}){
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(dbName, version);
 
-    let settled = false;
-    const timeoutId = setTimeout(() => {
-      if(settled) return;
-      settled = true;
-      reject(new Error(opts.timeoutMessage || t('common.dbTimeoutFallback', {dbName})));
-    }, opts.timeoutMs || 8000);
+    // Опоздавшее соединение закрываем (повторный resolve/reject игнорируется).
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(timeoutMessage || t('common.dbTimeoutFallback', {dbName})));
+    }, 8000);
 
-    req.onblocked = () => { if(opts.onBlocked) opts.onBlocked(); };
-    req.onupgradeneeded = () => { if(opts.onUpgrade) opts.onUpgrade(req.result); };
+    req.onblocked = () => {
+      if(!label) return;
+      debugLog(label + ' indexedDB.open("' + dbName + '") заблокирован - есть другое открытое соединение к базе (другая вкладка/сессия этого чата)');
+      if(lockedMessage) toast(lockedMessage);
+    };
+    req.onupgradeneeded = () => onUpgrade?.(req.result);
     req.onsuccess = () => {
-      clearTimeout(timeoutId);
-      if(settled){ try{ req.result.close(); }catch(e){} return; } // таймаут уже сработал раньше - просто закрываем опоздавшее соединение; сорвавшийся close() ни на что уже не влияет, вызывающий код давно получил reject
-      settled = true;
-      resolve(req.result);
+      clearTimeout(timer);
+      if(timedOut) req.result.close();
+      else resolve(req.result);
     };
     req.onerror = () => {
-      clearTimeout(timeoutId);
-      if(settled) return;
-      settled = true;
+      clearTimeout(timer);
       reject(req.error);
     };
   });
 }
+
+// Удаляет базу. Всегда резолвится: true - удалена, false - ошибка или заблокирована другой вкладкой.
+export const deleteIndexedDb = (dbName) => new Promise((resolve) => {
+  const req = indexedDB.deleteDatabase(dbName);
+  req.onsuccess = () => resolve(true);
+  req.onerror = () => {
+    debugLog('[idb] не удалось удалить ' + dbName + ': ' + errMsg(req.error));
+    resolve(false);
+  };
+  req.onblocked = () => {
+    debugLog('[idb] удаление ' + dbName + ' заблокировано другой вкладкой');
+    resolve(false);
+  };
+});

@@ -2,8 +2,7 @@
   "login": {
     "brandLine": "XMPP / WEBSOCKET CLIENT",
     "title": "RiedChat",
-    "encryptionNotice": "OMEMO encryption is on by default",
-    "wsUrlLabel": "WebSocket address (wss://...)",
+    "encryptionNotice": "OMEMO encryption is always on",
     "jidLabel": "JID (user@domain)",
     "passwordLabel": "Password",
     "rememberMe": "Remember this account on this device",
@@ -12,7 +11,7 @@
     "forgetBtn": "Forget",
     "savedAccount": "saved: {jid}",
     "fillAllFields": "fill in all fields",
-    "wsUrlMustBeWss": "the server address must start with wss:// (unencrypted ws:// is only allowed for localhost)"
+    "invalidJid": "enter the JID as user@domain"
   },
   "sidebar": {
     "myProfileTitle": "My profile: nickname and avatar",
@@ -35,7 +34,6 @@
     "offline": "offline",
     "encryptionUnavailable": "encryption unavailable",
     "noOmemo": "contact has no OMEMO",
-    "encryptionOff": "encryption disabled",
     "omemoOn": "OMEMO",
     "replyVerb": "Reply",
     "editVerb": "Editing",
@@ -93,14 +91,6 @@
     "imageDecodeFailed": "failed to decode the image",
     "dbTimeoutFallback": "the \"{dbName}\" database did not open within 8s - it is likely locked by another open tab/window"
   },
-  "chatControls": {
-    "omemoOffBtn": "Turn off OMEMO",
-    "omemoOnBtn": "Turn on OMEMO",
-    "omemoOnTitle": "OMEMO is on (click to turn off)",
-    "omemoOffTitle": "OMEMO is off (click to turn on)",
-    "omemoOnToast": "OMEMO turned on - messages will be encrypted",
-    "omemoOffToast": "OMEMO turned off - messages will be sent unencrypted"
-  },
   "voiceRecorder": {
     "selectContactFirst": "select a contact first",
     "notSupported": "audio recording is not supported by this browser",
@@ -152,7 +142,6 @@
     "decryptPackFailed": "failed to decrypt the pack",
     "loadingPackSuffix": "while loading the pack",
     "dbTimeout": "the sticker database did not open within 8s - it is likely locked by another open tab",
-    "txAborted": "sticker database operation was aborted",
     "unsupportedFormat": "only PNG, WEBP, JPG/JPEG, HEIC and GIF are supported",
     "tooLarge": "the file is too large (max 5 MB) - choose a smaller file"
   },
@@ -242,9 +231,6 @@
     "returnBannerAudio": "Call in progress - return"
   },
   "dates": {
-    "today": "today",
-    "yesterday": "yesterday",
-    "dayBeforeYesterday": "the day before yesterday",
     "lastSeenPrefix": "last seen {value}"
   },
   "media": {
@@ -304,43 +290,33 @@
   "upload": {
     "selectContactFirst": "select a contact first",
     "serviceNotFound": "file upload service not found",
-    "largeFileNoE2E": "the file is larger than {size} MB - uploading without OMEMO attachment encryption (plain HTTPS link) to avoid overloading tab memory",
-    "plainLinkWarning": "note: the file is being uploaded via a plain HTTPS link (not OMEMO) - anyone with the link can see it",
     "httpError": "upload error: HTTP {status}",
     "tooLargeSuffix": " - the file is too large",
     "networkError": "the network connection dropped while uploading the file - see details at the bottom of the screen, in the debug log",
-    "timeoutError": "the upload was interrupted by timeout",
     "cancelled": "upload cancelled",
     "slotRejected": "the server rejected the slot request",
     "mixedContent": "error: the upload server returned an http link while the page is open over https (mixed content) - contact the server administrator",
     "slotNotIssued": "slot not issued: {detail}",
     "slotLimitReached": "the file exceeds the server limit",
-    "slotNoResponse": "the server did not respond in time (overloaded?) - try again"
+    "slotNoResponse": "the server did not respond in time (overloaded?) - try again",
+    "tooLargeForE2E": "the file is larger than {size} MB - not sent: attachments are only sent OMEMO-encrypted",
+    "encryptFailed": "failed to encrypt the file - upload cancelled"
   },
   "history": {
     "noSpace": "not enough space on the device to save chat history - free up some space (e.g. clear the media cache) ",
     "saveFailed": "failed to save {context} on the device: {detail}",
     "ctxStickerLink": "sticker link cache",
     "ctxChatHistory": "chat history",
-    "ctxImportedMam": "history imported from MAM",
     "dbTimeout": "the chat history database did not open within 8s - it is likely locked by another open tab/window of this chat",
     "dbLocked": "chat history won't open: close other tabs/windows with this chat and refresh the page"
   },
   "messaging": {
     "newDeviceUndecrypted": "{name} has a new device - the message wasn't decrypted, make a decision in the OMEMO menu (⋮)",
     "editNotFound": "Couldn't find the message to edit",
-    "actionMessage": "Message",
-    "actionCorrection": "Correction",
     "omemoPlaceholder": "This message is OMEMO-encrypted - update your client to read it.",
-    "reasonAllDevicesDead": "Failed to establish an OMEMO session with any of the contact's devices (keys may have expired).",
-    "reasonNoDevices": "No OMEMO devices found for the contact.",
-    "attachmentKeyWarning": "{reason} The attachment is encrypted, but the decryption key can only be sent as plain text - the server and anyone intercepting traffic will get access to the file. Send the link with the key unencrypted?",
-    "plaintextWarning": "{reason} The {action} can only be sent as plain text. Send it?",
-    "confirmTitle": "Send unencrypted?",
-    "confirmOk": "Send unencrypted",
-    "confirmCancel": "Don't send",
-    "fallbackNoSession": "failed to establish an OMEMO session with any of the contact's devices (expired keys?) - sent unencrypted",
-    "fallbackNoDevices": "no OMEMO devices found for the contact - sent unencrypted"
+    "notSentUnavailable": "Message not sent: OMEMO encryption is unavailable",
+    "notSentNoSession": "Message not sent: failed to establish an OMEMO session with any of the contact's devices (expired keys?)",
+    "notSentNoDevices": "Message not sent: no OMEMO devices found for the contact"
   },
   "netRoster": {
     "loadFailed": "failed to load the contact list",
@@ -352,9 +328,6 @@
     "subscribeDesc": "Contact {name} ({jid}) wants to see your status (online/offline, last seen time). Allow?",
     "allow": "Allow",
     "decline": "Decline"
-  },
-  "mam": {
-    "synced": "chat history synced with the server (MAM)"
   },
   "connection": {
     "loadHistoryFailed": "failed to load local chat history: {detail}",

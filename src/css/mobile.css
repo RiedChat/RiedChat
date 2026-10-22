@@ -18,7 +18,6 @@
     align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;
     border-radius:var(--r-round);
   }
-  @media (hover: hover) and (pointer: fine){ .back-btn:hover{ background:var(--ink-10); } }
   .back-btn svg.icon-svg{ width:20px; height:20px; }
   .bubble{ max-width:82%; }
   .bubble img{ max-width:min(192px, 62vw); max-height:45vh; }
@@ -31,5 +30,5 @@
   .sidebar-head{ padding:14px 16px 12px; }
   .search-wrap{ padding:10px 16px; }
   .roster-item{ padding:12px 16px; }
-  #empty-state .glyph{ font-size:2.25rem; } /* «RiedChat» длиннее старого «chat.» - на узком экране крупный размер не влезал бы */
+  #empty-state .glyph{ font-size:2.25rem; } /* «RiedChat» длиннее старого «chat.» - крупный размер не влезал */
 }

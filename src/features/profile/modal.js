@@ -1,54 +1,42 @@
 // ===================== features/profile/modal.js =====================
-// Модалка "Мой профиль": псевдоним + аватар, которые видят контакты вместо
-// JID (см. net/vcard.js - там вся XMPP-логика публикации/рассылки).
-// Обои чата и настройки видео живут в той же модалке, но вынесены в
-// отдельные модули - см. features/wallpaper/modal.js, features/video-settings.js.
+// Модалка "Мой профиль": псевдоним + аватар, видимые контактам вместо JID (XMPP-логика - net/vcard.js).
+// Обои и настройки видео - в той же модалке, но в features/wallpaper/modal.js и features/autoload-settings.js.
+import { errMsg } from '../../core/debug-log.js';
 import { $, toast, wireModalDismiss } from '../../core/dom-utils.js';
 import { state } from '../../core/state.js';
-import * as wallpaperModal from '../wallpaper/modal.js';
-import * as videoSettings from '../video-settings.js';
-import * as videoNoteSettings from '../video-note-settings.js';
-import * as audioSettings from '../audio-settings.js';
-import * as imageSettings from '../image-settings.js';
-import * as stickerSettings from '../sticker-settings.js';
-import * as fileSettings from '../file-settings.js';
-import * as swipeSettings from '../swipe-settings.js';
-import * as themeSettings from '../theme-settings.js';
-import { loadProfile, saveProfile } from '../../net/vcard-storage.js';
-import { applyProfile } from '../../net/vcard.js';
 import { t } from '../../i18n/t.js';
+import { profileStore } from '../../net/vcard-storage.js';
+import { applyProfile } from '../../net/vcard.js';
+import { autoload } from '../autoload-settings.js';
+import { swipeToggles } from '../swipe-settings.js';
+import * as themeSettings from '../theme-settings.js';
+import * as wallpaperModal from '../wallpaper/modal.js';
+
 import {
   renderAvatarButton,
   renderPreview,
   resetPending,
-  getPendingPhoto,
-  isPendingRemove,
+  resolvePendingPhoto,
   wireAvatarPicker,
 } from './avatar.js';
 
-const S = state;
+// Секции модалки с контрактом openInModal/commit.
+const sections = [wallpaperModal, ...Object.values(autoload), ...swipeToggles];
 
 function openProfileModal(){
-  const profile = loadProfile();
+  const profile = profileStore.get();
   resetPending();
-  $('profile-nickname').value = (profile && profile.nickname) || '';
-  renderPreview(profile && profile.photoB64, profile && profile.photoType);
+  $('profile-nickname').value = profile?.nickname || '';
+  renderPreview(profile?.photoB64, profile?.photoType);
 
-  wallpaperModal.openInModal();
-  videoSettings.openInModal();
-  videoNoteSettings.openInModal();
-  audioSettings.openInModal();
-  imageSettings.openInModal();
-  stickerSettings.openInModal();
-  fileSettings.openInModal();
-  swipeSettings.openInModal();
+  sections.forEach(s => s.openInModal());
   themeSettings.openInModal();
 
-  $('profile-modal').classList.add('active');
+  $('profile-modal').showModal();
 }
 
 export function wireProfile(){
-  renderAvatarButton(); // на случай, если профиль уже был сохранён в прошлой сессии
+  renderAvatarButton(); // профиль мог быть сохранён в прошлой сессии
 
   const closeProfileModal = wireModalDismiss('profile-modal', 'profile-modal-close');
 
@@ -59,33 +47,19 @@ export function wireProfile(){
 
   $('profile-save').addEventListener('click', async () => {
     const nickname = $('profile-nickname').value.trim().slice(0, 60);
-    const current = loadProfile() || {};
-    let photoB64 = current.photoB64 || null;
-    let photoType = current.photoType || null;
-    if(isPendingRemove()){ photoB64 = null; photoType = null; }
-    else {
-      const pendingPhoto = getPendingPhoto();
-      if(pendingPhoto){ photoB64 = pendingPhoto.b64; photoType = pendingPhoto.type; }
-    }
+    const current = profileStore.get() || {};
+    const { photoB64, photoType } = resolvePendingPhoto(current);
 
     const profile = {nickname, photoB64, photoType, photoHash: current.photoHash || ''};
-    saveProfile(profile);
+    profileStore.set(profile);
     renderAvatarButton();
 
-    wallpaperModal.commit();
-    videoSettings.commit();
-    videoNoteSettings.commit();
-    audioSettings.commit();
-    imageSettings.commit();
-    stickerSettings.commit();
-    fileSettings.commit();
-    swipeSettings.commit();
-    themeSettings.commit();
+    sections.forEach(s => s.commit());
 
     closeProfileModal();
     toast(t('profile.saved'));
 
-    if(!S.connection || !S.connection.connected){
+    if(!state.connection?.connected){
       toast(t('profile.offlineNotice'));
       return;
     }
@@ -93,7 +67,7 @@ export function wireProfile(){
       await applyProfile(profile);
       toast(t('profile.broadcasted'));
     }catch(err){
-      toast(t('profile.broadcastError', { error: err && err.message ? err.message : err }));
+      toast(t('profile.broadcastError', { error: errMsg(err) }));
     }
   });
 }

@@ -1,25 +1,65 @@
 // ===================== ui/voice-player/audio-lifecycle.js =====================
-// Общая часть жизненного цикла <audio> для голосовых/трек-плееров:
-// реестр смонтированных плееров (чтобы ставить остальные на паузу при
-// старте одного, как в Telegram) и переключение play/pause иконок.
-// Выделено, т.к. этот код был почти дословно продублирован в
-// _mountWaveformPlayer и _mountTrackPlayer.
+// Жизненный цикл <audio> для голосовых/трек-плееров (waveform-player.js, track-player.js): реестр смонтированных плееров (старт одного паузит остальные, как в Telegram) и переключение иконок play/pause.
+import { clamp01, playQuietly } from '../../core/dom-utils.js';
+import { html, raw, setHTML } from '../../core/safe-html.js';
 import { t } from '../../i18n/t.js';
 
-// Реестр уже смонтированных голосовых-плееров: при старте воспроизведения
-// одного нужно поставить остальные на паузу (как в Telegram). Хранит записи
-// {audio, host} - host нужен только для самоочистки ниже, сам плеер по нему
-// не ищется нигде за пределами этого файла.
-export const voiceAudios = [];
+// Иконки play/pause в кнопке плеера: видимую выбирает CSS по aria-pressed (css/voice-player.css), его ставит wireVoiceAudio. Готовая разметка - вставлять через raw().
+const PLAY_PAUSE_SVG = `<svg class="ic-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <svg class="ic-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>`;
 
-// Убирает из реестра записи, чей host уже не в DOM. render-messages.js
-// (ui/chat-view/render-messages.js:renderMessages) полностью пересобирает
-// список сообщений на каждое новое событие в чате и заново монтирует уже
-// показанные ранее голосовые/трек-плееры - без этой чистки voiceAudios рос
-// без остановки на всю сессию (по записи на каждый такой ремонт), и цикл
-// "поставить остальные на паузу" в audio.addEventListener('play', ...) ниже
-// со временем перебирал бы всё больше мёртвых Audio(), которые к тому же
-// сами никогда не собирались GC, пока висели в этом массиве.
+// Кнопка play/pause. extraClass - доп. класс (например 'track-play').
+export function playButtonHtml(extraClass = ''){
+  const cls = ['voice-play', extraClass].filter(Boolean).join(' ');
+  return html`<button class="${cls}" type="button" aria-label="${t('voicePlayer.play')}" aria-pressed="false">
+        ${raw(PLAY_PAUSE_SVG)}
+      </button>`;
+}
+
+// Перемотка по клику/касанию: currentTime по положению clientX в el. Возвращает долю [0..1] или null, если длительность неизвестна.
+export function seekByClick(audio, el, clientX){
+  if(!audio.duration) return null;
+  const rect = el.getBoundingClientRect();
+  const frac = clamp01((clientX - rect.left) / rect.width);
+  audio.currentTime = frac * audio.duration;
+  return frac;
+}
+
+// Общий таймлайн: длительность из метаданных, текущее время, конец воспроизведения.
+//   onDuration(duration)          - после loadedmetadata (0, если неизвестна)
+//   onTime(currentTime, duration) - на каждый timeupdate
+//   onEnded(duration)             - по окончании
+export function bindTimeline(audio, {onDuration, onTime, onEnded}){
+  let duration = 0;
+  audio.addEventListener('loadedmetadata', () => {
+    duration = audio.duration || 0;
+    onDuration(duration);
+  });
+  audio.addEventListener('timeupdate', () => onTime(audio.currentTime, duration));
+  audio.addEventListener('ended', () => onEnded(duration));
+}
+
+// <audio> плеера: до первого play - только метаданные.
+function createVoiceAudio(blobUrl){
+  const audio = new Audio(blobUrl);
+  audio.preload = 'metadata';
+  return audio;
+}
+
+// Общий каркас обоих плееров: разметка в host -> <audio> -> элементы по селекторам.
+// selectors - {имя: css-селектор}; возвращает {audio, els: {имя: Element|null}}. Таймлайн (bindTimeline) и wireVoiceAudio вызывает плеер сам: колбэки у режимов разные.
+export function mountVoiceFrame(host, blobUrl, markup, selectors){
+  setHTML(host, markup);
+  const audio = createVoiceAudio(blobUrl);
+  const els = {};
+  for(const [name, selector] of Object.entries(selectors)) els[name] = host.querySelector(selector);
+  return { audio, els };
+}
+
+// Реестр плееров: при старте одного остальные ставятся на паузу. Запись {audio, host}; host нужен для самоочистки ниже.
+const voiceAudios = [];
+
+// Убирает записи, чей host не в DOM. Окно списка (render-messages.js, virtual-list.js) выгружает и заново монтирует строки, поэтому без чистки voiceAudios рос бы всю сессию, цикл паузы по мёртвым Audio() замедлялся бы, а GC их не собирал.
 function pruneDetached(){
   for(let i = voiceAudios.length - 1; i >= 0; i--){
     const host = voiceAudios[i].host;
@@ -27,37 +67,24 @@ function pruneDetached(){
   }
 }
 
-// Регистрирует audio в общем реестре и вешает play/pause обработчики,
-// которые переключают iconPlay/iconPause и ставят остальные плееры на паузу.
-// onPlay/onPause - опциональные доп. колбэки конкретного плеера (например,
-// обновление строки прогресса в track-player.js). host - контейнер плеера в
-// DOM (.media-frame/.media-embed), нужен только для pruneDetached() выше.
-export function wireVoiceAudio(audio, iconPlay, iconPause, {onPlay, onPause, host} = {}){
+// Регистрирует audio в реестре и вешает play/pause: переключают aria-pressed кнопки и паузят остальные плееры. host - контейнер (.media-frame/.media-embed): в нём ищется .voice-play, он же нужен pruneDetached(). onPlay/onPause - доп. колбэки плеера (например, прогресс в track-player.js).
+export function wireVoiceAudio(audio, host, {onPlay, onPause} = {}){
   pruneDetached();
   voiceAudios.push({audio, host});
-  // Кнопка play/pause - toggle-button (WAI-ARIA APG Button Pattern): её
-  // состояние должно быть выражено программно, а не только цветом/видимой
-  // иконкой, иначе для screen reader она навсегда остаётся "Воспроизвести",
-  // даже когда запись уже играет. iconPlay/iconPause лежат прямо внутри
-  // <button class="voice-play">/<button class="track-play"> - closest('button')
-  // всегда находит именно её.
-  const btn = iconPlay.closest('button');
+  // Кнопка - toggle-button (WAI-ARIA APG): состояние выражено программно, иначе screen reader всегда читает «Воспроизвести». Оно же переключает иконки в CSS. <button class="voice-play"> (у трека ещё .track-play).
+  const btn = host.querySelector('.voice-play');
+  btn.addEventListener('click', () => {
+    if(audio.paused) playQuietly(audio); else audio.pause();
+  });
+  const setPlaying = on => {
+    btn.setAttribute('aria-label', t(on ? 'voicePlayer.pause' : 'voicePlayer.play'));
+    btn.setAttribute('aria-pressed', String(on));
+  };
   audio.addEventListener('play', () => {
-    iconPlay.style.display = 'none'; iconPause.style.display = '';
-    if(btn){
-      btn.setAttribute('aria-label', t('voicePlayer.pause'));
-      btn.setAttribute('aria-pressed', 'true');
-    }
+    setPlaying(true);
     voiceAudios.forEach(entry => { if(entry.audio !== audio) entry.audio.pause(); });
     if(onPlay) onPlay();
   });
-  audio.addEventListener('pause', () => {
-    iconPlay.style.display = ''; iconPause.style.display = 'none';
-    if(btn){
-      btn.setAttribute('aria-label', t('voicePlayer.play'));
-      btn.setAttribute('aria-pressed', 'false');
-    }
-    if(onPause) onPause();
-  });
+  audio.addEventListener('pause', () => { setPlaying(false); if(onPause) onPause(); });
 }
 

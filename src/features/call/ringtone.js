@@ -25,11 +25,8 @@ export function startRingtone(){
   }catch(e){
     console.warn('startRingtone: WebAudio недоступен', e);
   }
-  if(navigator.vibrate){
-    // Повторяющийся паттерн (вибро/пауза), пока звонок не примут/не отклонят/
-    // не отменят - вызов stopRingtone() (navigator.vibrate(0)) прерывает его.
-    navigator.vibrate([400, 200, 400, 1000]);
-  }
+  // Повторяющийся паттерн, пока звонок не примут/отклонят/отменят; stopRingtone() (navigator.vibrate(0)) прерывает.
+  navigator.vibrate?.([400, 200, 400, 1000]);
 }
 
 export function stopRingtone(){

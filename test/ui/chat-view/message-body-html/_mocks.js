@@ -1,22 +1,28 @@
 import { vi } from 'vitest';
 
-vi.mock('../../../../src/net/media.js', () => ({
-  media: {
-    AESGCM_RE: /aesgcm:\/\/[^\s#]+#[0-9a-fA-F]+/g,
-    kindOf: vi.fn(),
-    extOf: vi.fn((url) => (url.split('.').pop() || '').split('#')[0]),
-    isAesgcm: (url) => /^aesgcm:\/\//i.test(url),
-    isStickerPack: vi.fn(() => false),
-    isVideoNote: vi.fn(() => false),
-    getCached: vi.fn(() => undefined),
-    extractThumbDataUrl: vi.fn(() => null),
-  },
-}));
-vi.mock('../../../../src/features/message-swipe.js', () => ({ mediaLabel: vi.fn((kind) => '[' + kind + ']') }));
-vi.mock('../../../../src/features/video-settings.js', () => ({ loadVideoAutoDownloadEnabled: vi.fn(() => false) }));
-vi.mock('../../../../src/features/image-settings.js', () => ({ loadImageAutoDownloadEnabled: vi.fn(() => false) }));
+vi.mock('../../../../src/net/media.js', () => ({ media: { getCached: vi.fn(() => undefined) } }));
+vi.mock('../../../../src/features/message-swipe/shared.js', () => ({ mediaLabel: vi.fn((kind) => '[' + kind + ']') }));
+vi.mock('../../../../src/features/autoload-settings.js', async () => {
+  const { isTrustedContact } = await import('../../../../src/net/trusted-contacts.js');
+  const { state } = await import('../../../../src/core/state.js');
+  const autoload = {
+    video: { load: vi.fn(() => false) },
+    image: { load: vi.fn(() => false) },
+    file: { load: vi.fn(() => false) },
+  };
+  const { media } = await import('../../../../src/net/media.js');
+  const { categoryOf } = await import('../../../../src/net/media/mime-kind.js');
+  return {
+    autoload,
+    // Как features/autoload-settings.js:shouldHoldOff: ключ настройки - categoryOf(kind, url).
+    shouldHoldOff: ({ out, url, kind }) => {
+      if(out || media.getCached(url)?.status === 'done') return false;
+      const key = categoryOf(kind, url);
+      return key !== 'image' && !!autoload[key] && !autoload[key].load();
+    },
+    canAutoLoadImage: (out) => out || (autoload.image.load() && isTrustedContact(state.activeChat)),
+  };
+});
 vi.mock('../../../../src/net/trusted-contacts.js', () => ({ isTrustedContact: vi.fn(() => false) }));
 vi.mock('../../../../src/core/state.js', () => ({ state: { activeChat: 'alice@example.com' } }));
 vi.mock('../../../../src/i18n/t.js', () => ({ t: (key) => key }));
-
-export const nextSeq = (() => { let n = 0; return () => n++; })();

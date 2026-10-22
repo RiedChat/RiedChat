@@ -7,9 +7,7 @@
 }
 .login-box{ width:360px; max-width:90vw; }
 
-/* Автовход с сохранённым на устройстве аккаунтом: сама форма (поля, кнопка,
-   строка "сохранён: ...") не показывается, пока идёт подключение - виден
-   только бренд/статус, без мелькания логина и пароля на экране. */
+/* Автовход: форма скрыта на время подключения, виден только бренд/статус. */
 #login-screen.auto-connecting .field,
 #login-screen.auto-connecting .btn-primary,
 #login-screen.auto-connecting .saved-account{
@@ -18,19 +16,18 @@
 #login-screen.auto-connecting .login-status{ margin-top:4px; }
 .login-brand{
   font-size:0.8125rem; letter-spacing:.14em; text-transform:uppercase;
-  font-family:'IBM Plex Mono',monospace; color:var(--ink-40);
+  font-family:'IBM Plex Mono',monospace;
   margin-bottom:6px;
   display:flex; align-items:center; gap:8px;
 }
 .login-brand .dot{width:6px;height:6px;background:var(--ink);border-radius:50%;display:inline-block;}
 .login-title{ font-size:2.125rem; font-weight:800; letter-spacing:-.02em; margin-bottom:6px; }
-.login-sub{ font-size:0.75rem; color:var(--ok); font-family:'IBM Plex Mono',monospace; margin-bottom:22px; display:flex; align-items:center; gap:6px;}
+.login-sub{ font-size:0.75rem; font-family:'IBM Plex Mono',monospace; margin-bottom:22px; display:flex; align-items:center; gap:6px;}
 .login-sub .lock{ display:inline-flex; vertical-align:-2px; }
 .login-sub .lock svg.icon-svg{ width:14px; height:14px; }
 .field{ margin-bottom:14px; }
 .field label{
-  display:block; font-size:0.6875rem; text-transform:uppercase; letter-spacing:.1em;
-  color:var(--ink-40); margin-bottom:6px; font-family:'IBM Plex Mono',monospace;
+  display:block; font-size:0.6875rem; text-transform:uppercase; letter-spacing:.1em; margin-bottom:6px; font-family:'IBM Plex Mono',monospace;
 }
 .field input{
   width:100%; border:1.5px solid var(--ink); background:var(--paper); color:var(--ink);
@@ -45,26 +42,24 @@
   border-radius:var(--r-sm);
 }
 @media (hover: hover) and (pointer: fine){ .btn-primary:hover{ background:var(--paper); color:var(--ink); } }
-.btn-primary:disabled{ opacity:.3; cursor:default; }
+.btn-primary:disabled{ background:var(--paper); color:var(--ink); border-style:dashed; cursor:default; }
 .btn-secondary{
-  width:100%; background:none; color:var(--ink-60); border:1px solid var(--ink-20);
+  width:100%; background:none; color:var(--ink); border:1px solid var(--ink);
   padding:10px; font-size:0.75rem; letter-spacing:.02em; cursor:pointer;
   margin-top:8px; text-transform:uppercase; font-family:'IBM Plex Mono',monospace;
   border-radius:var(--r-sm);
 }
-@media (hover: hover) and (pointer: fine){ .btn-secondary:hover{ border-color:var(--ink); color:var(--ink); } }
 .login-status{
-  margin-top:14px; font-size:0.75rem; font-family:'IBM Plex Mono',monospace; color:var(--ink-60);
+  margin-top:14px; font-size:0.75rem; font-family:'IBM Plex Mono',monospace; color:var(--ink);
   min-height:16px;
 }
-.login-status.err{ color:var(--ink); font-weight:600; }
+.login-status.err{ font-weight:600; }
 
 .saved-account{
-  margin-top:16px; padding:12px 14px; border:1px solid var(--ink-20); border-radius:var(--r-md); font-family:'IBM Plex Mono',monospace;
-  font-size:0.75rem; color:var(--ink-60); display:flex; align-items:center; justify-content:space-between; gap:10px;
+  margin-top:16px; padding:12px 14px; border:1px solid var(--ink); border-radius:var(--r-md); font-family:'IBM Plex Mono',monospace;
+  font-size:0.75rem; color:var(--ink); display:flex; align-items:center; justify-content:space-between; gap:10px;
 }
 .saved-account button{
-  background:none; border:1px solid var(--ink-40); border-radius:var(--r-round); color:var(--ink-60); font-size:0.6875rem; padding:5px 11px;
+  background:none; border:1px solid var(--ink); border-radius:var(--r-round); color:var(--ink); font-size:0.6875rem; padding:5px 11px;
   cursor:pointer; font-family:'IBM Plex Mono',monospace; text-transform:uppercase;
 }
-@media (hover: hover) and (pointer: fine){ .saved-account button:hover{ border-color:var(--ink); color:var(--ink); } }

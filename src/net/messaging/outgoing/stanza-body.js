@@ -1,25 +1,14 @@
 // ===================== net/messaging/outgoing/stanza-body.js =====================
-// Дописывает в уже созданную <message> станзу (Strophe builder) либо
-// зашифрованный OMEMO-элемент + плейсхолдер-<body>, либо открытый <body>, и
-// в обоих случаях <markable/> (XEP-0333) - общая часть для sendMessage и
-// editMessage (различается только сам билдер станзы и её остальные атрибуты).
+// Дописывает в <message> (Strophe builder) зашифрованный OMEMO-элемент + плейсхолдер-<body>
+// и <markable/> (XEP-0333). Общая часть sendMessage и editMessage.
 import { NS_CHAT_MARKERS, NS_HINTS } from '../../../core/constants.js';
 import { t } from '../../../i18n/t.js';
 
-// Возвращает encrypted:boolean - для локальной записи сообщения в историю.
-export function appendStanzaBody(msg, encryptedEl, plainBody){
-  let encrypted = false;
-  if(encryptedEl){
-    msg.cnode(encryptedEl).up();
-    // осмысленный текст-заглушка для клиентов без OMEMO + подсказка не хранить на сервере в открытую
-    msg.c('body').t(t('messaging.omemoPlaceholder')).up();
-    msg.c('store', {xmlns: NS_HINTS}).up();
-    encrypted = true;
-  } else {
-    msg.c('body').t(plainBody).up();
-  }
-  // Просим собеседника подтвердить прочтение (XEP-0333) - сам текст сообщения
-  // это не расшифровывает и не раскрывает, маркер идёт открытым метаданными.
+export function appendStanzaBody(msg, encryptedEl){
+  msg.cnode(encryptedEl).up();
+  // текст-заглушка для клиентов без OMEMO + просьба не хранить на сервере открытым
+  msg.c('body').t(t('messaging.omemoPlaceholder')).up();
+  msg.c('store', {xmlns: NS_HINTS}).up();
+  // Просим подтвердить прочтение (XEP-0333); маркер - открытые метаданные, текст не раскрывает.
   msg.c('markable', {xmlns: NS_CHAT_MARKERS}).up();
-  return encrypted;
 }

@@ -1,9 +1,10 @@
 // ===================== crypto/omemo/bundle.js =====================
-// Публикация собственного bundle (signed prekey, identity key, one-time
-// prekeys, omemo:2) в PEP. Публикация device-list - в crypto/omemo/device-list-publish.js;
-// общий механизм публикации PEP-узла (XEP-0060) - в crypto/pep/publish-node.js.
+// Публикация собственного bundle (signed prekey, identity key, one-time prekeys, omemo:2) в PEP.
+// device-list - в omemo/device-list-publish.js, публикация PEP-узла - в pep/publish-node.js.
 import { NS_OMEMO, NS_OMEMO_BUNDLES_PREFIX } from '../../core/constants.js';
-import { bytes as B } from '../bytes.js';
+import * as B from '../bytes.js';
+import { publishItem } from '../pep/publish-node.js';
+
 import { omemo } from './state.js';
 
 Object.assign(omemo, {
@@ -13,8 +14,7 @@ Object.assign(omemo, {
     const spkSig = await this.store.getMeta('signedPreKeySignature');
     const idKeyPair = await this.store.getIdentityKeyPair();
 
-    const preKeyIds = (await this.store.idb.keys(this.store.ns + 'preKey:'))
-      .map(k => parseInt(k.slice((this.store.ns + 'preKey:').length), 10));
+    const preKeyIds = await this.store.listPreKeyIds();
     const pkXml = [];
     for(const id of preKeyIds){
       const pk = await this.store.loadPreKey(id);
@@ -27,6 +27,26 @@ Object.assign(omemo, {
       `<ik>${B.b64FromBuf(idKeyPair.pubKey)}</ik>` +
       `<prekeys>${pkXml.join('')}</prekeys>` +
       `</bundle>`;
-    await this._publishItem(NS_OMEMO_BUNDLES_PREFIX + this.deviceId, 'current', xml);
+    await publishItem(this.connection, NS_OMEMO_BUNDLES_PREFIX + this.deviceId, 'current', xml);
+  },
+
+  // Склеивает частые запросы на публикацию bundle (после каждого prekey-сообщения): идущая публикация не дублируется,
+  // а если за время неё что-то изменилось - выполняется ровно одна повторная.
+  _publishBundleCoalesced(){
+    if(this._bundlePubP){
+      this._bundlePubAgain = true;
+      return this._bundlePubP;
+    }
+    this._bundlePubP = (async () => {
+      try{
+        do{
+          this._bundlePubAgain = false;
+          await this._publishBundle();
+        }while(this._bundlePubAgain);
+      }finally{
+        this._bundlePubP = null;
+      }
+    })();
+    return this._bundlePubP;
   },
 });

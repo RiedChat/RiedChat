@@ -1,53 +1,37 @@
 // ================ net/messaging/incoming/correction.js ================
-// XEP-0308: применение входящего исправления уже отправленного сообщения.
+// XEP-0308: применение входящего исправления отправленного сообщения.
 import { state } from '../../../core/state.js';
-import { history } from '../../history.js';
-import { t } from '../../../i18n/t.js';
-import { parseMessageBody } from '../../message-body-parser.js';
 import { patchMessageBody } from '../../../ui/chat-view/render-messages.js';
+import { history } from '../../history.js';
+import { parseIncomingBody } from '../../message-body-parser.js';
 
-const S = state;
-
-// Применяет входящее исправление (XEP-0308): находит своё же сообщение с
-// id === id из <replace> и заменяет ему body. Расшифровка/разбор тела - тот
-// же parseMessageBody, что и для обычного входящего сообщения (correction
-// может быть OMEMO-зашифрован точно так же, как и оригинал).
+// Находит сообщение с id === id из <replace> и заменяет body. Разбор тела - parseIncomingBody
+// (как для обычных сообщений; исправление может быть OMEMO-зашифровано).
 export async function handleCorrection(stanza, bare){
   const replaceEl = stanza.querySelector('replace');
-  const targetId = replaceEl && replaceEl.getAttribute('id');
+  const targetId = replaceEl?.getAttribute('id');
   if(!targetId) return;
-  // Как и в message-handler.js: незашифрованное "эхо" собственного
-  // исправления самим себе игнорируем - это не значит, что исправление не
-  // применилось, просто мы уже применили его локально при отправке (см.
-  // net/messaging/outgoing.js:editMessage).
-  if(bare === S.myBareJid && !stanza.querySelector('encrypted')) return;
+  // Как в message-handler.js: незашифрованное эхо собственной правки игнорируем - она уже применена
+  // локально при отправке (outgoing.js:editMessage).
+  if(bare === state.myBareJid && !stanza.querySelector('encrypted')) return;
 
-  const parsed = await parseMessageBody(stanza);
-  if(!parsed) return; // OMEMO-конверт адресован другому нашему устройству
-  if(parsed.encrypted && bare === S.myBareJid) return;
-  if(!parsed.body) return;
+  const parsed = await parseIncomingBody(stanza, bare);
+  if(!parsed) return;  // для другого нашего устройства, пусто или собственное зашифрованное эхо
 
-  const list = S.messages[bare];
+  const list = state.messages[bare];
   if(!list) return;
-  // XEP-0308 разрешает исправлять только своё же сообщение: правку из чата
-  // с контактом (bare !== myBareJid) можно применять лишь к сообщению,
-  // которое реально прислал этот контакт (out:false) - иначе собеседник
-  // мог бы прислать <replace id="..."> с id НАШЕГО исходящего сообщения
-  // (out:true) и подменить в нашей же истории то, что мы якобы написали
-  // сами (подделка переписки). Симметрично: эхо собственной правки самим
-  // себе (bare === myBareJid) может относиться только к нашему же
-  // исходящему сообщению (out:true), см. net/messaging/outgoing/edit.js,
-  // где та же проверка сделана на исходящем пути.
-  const expectedOut = bare === S.myBareJid;
+  // XEP-0308: исправлять можно только своё сообщение. Правка из чата с контактом (bare !== myBareJid)
+  // применяется лишь к его сообщению (out:false) - иначе собеседник подменил бы в нашей истории
+  // НАШЕ исходящее (out:true) через <replace id="...">. Симметрично, эхо собственной правки
+  // (bare === myBareJid) - только к out:true (то же на исходящем пути: outgoing/edit.js).
+  const expectedOut = bare === state.myBareJid;
   const targetIdx = list.findIndex(m => m && m.id === targetId && !!m.out === expectedOut);
-  if(targetIdx === -1) return; // сообщение ещё не попало в локальную историю или чужое - тихо игнорируем
+  if(targetIdx === -1) return;  // сообщения нет в локальной истории или оно чужое - игнорируем
   const target = list[targetIdx];
   target.body = parsed.body;
   target.encrypted = parsed.encrypted;
   target.edited = true;
-  history.saveThread(bare, list).catch(e => history.reportWriteError(e, t('history.ctxChatHistory')));
-  // Точечно перерисовываем только этот один пузырь - см. комментарий у
-  // handleDisplayedMarker в displayed-marker.js о том, почему полный
-  // renderMessages() тут был лишним и дорогим.
-  if(S.activeChat === bare) patchMessageBody(targetIdx);
+  history.saveThread(bare, list);
+  // Перерисовываем только этот пузырь (см. displayed-marker.js:handleDisplayedMarker).
+  if(state.activeChat === bare) patchMessageBody(targetIdx);
 }

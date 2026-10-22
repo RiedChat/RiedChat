@@ -1,44 +1,15 @@
 // ===================== features/swipe-settings.js =====================
-// Настройка направления свайпа по сообщению (localStorage, на устройство -
-// как и шрифт в features/font-settings/, это предпочтение конкретного
-// устройства/руки пользователя, а не аккаунта). UI - чекбокс в модалке
-// профиля. Читается из features/message-swipe.js при навешивании жеста.
-import { lsGet, lsSet } from '../core/storage.js';
-import { $ } from '../core/dom-utils.js';
+// Направление свайпа (localStorage, на устройство - как шрифт в features/font-settings/). UI - чекбоксы в модалке профиля; читается в features/message-swipe/wire.js.
+import { toggleSetting } from '../core/toggle-setting.js';
 
-const KEY = 'xmppChatSwipeReversed';
-const BIDI_QUOTE_KEY = 'xmppChatSwipeBidiQuote';
+// false (по умолчанию) - как в Telegram: справа налево - цитата, слева направо - копировать/скачать.
+// true - реверс (например, для RTL): слева направо - цитата, справа налево - копировать/скачать.
+const reversed = toggleSetting('xmppChatSwipeReversed', false, 'swipe-reversed-toggle');
 
-// false (по умолчанию) - как в Telegram: свайп справа налево -> цитировать,
-// слева направо -> копировать/скачивать.
-// true - реверс (удобно, например, при работе в RTL-раскладке/интерфейсе):
-// свайп слева направо -> цитировать, справа направо -> копировать/скачивать.
-export function loadSwipeReversed(){
-  return lsGet(KEY, false);
-}
-export function saveSwipeReversed(reversed){
-  lsSet(KEY, !!reversed);
-}
+// "Двунаправленная цитата": оба свайпа вызывают startReply (message-swipe/wire.js); реверс теряет смысл, wire.js проверяет loadBidiQuote() раньше loadSwipeReversed().
+const bidiQuote = toggleSetting('xmppChatSwipeBidiQuote', false, 'swipe-bidi-quote-toggle');
 
-// "Двунаправленная цитата" - заменяет копирование/скачивание на цитату в
-// обоих направлениях свайпа: оба свайпа (и вправо, и влево) вызывают
-// startReply (см. message-swipe/wire.js). Настройка "Реверс направления
-// свайпа" при этом теряет смысл (обе стороны и так делают одно и то же) -
-// wire.js проверяет loadBidiQuote() раньше loadSwipeReversed().
-export function loadBidiQuote(){
-  return lsGet(BIDI_QUOTE_KEY, false);
-}
-export function saveBidiQuote(enabled){
-  lsSet(BIDI_QUOTE_KEY, !!enabled);
-}
+export const loadSwipeReversed = reversed.load;
+export const loadBidiQuote = bidiQuote.load;
 
-// Проставляет чекбоксы модалки профиля из сохранённых настроек.
-export function openInModal(){
-  $('swipe-reversed-toggle').checked = loadSwipeReversed();
-  $('swipe-bidi-quote-toggle').checked = loadBidiQuote();
-}
-// Читает чекбоксы модалки профиля и сохраняет.
-export function commit(){
-  saveSwipeReversed($('swipe-reversed-toggle').checked);
-  saveBidiQuote($('swipe-bidi-quote-toggle').checked);
-}
+export const swipeToggles = [reversed, bidiQuote];

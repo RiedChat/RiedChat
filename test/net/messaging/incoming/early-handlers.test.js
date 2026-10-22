@@ -7,7 +7,7 @@ vi.mock('../../../../src/crypto/omemo/state.js', () => ({
 vi.mock('../../../../src/net/messaging/incoming/correction.js', () => ({
   handleCorrection: vi.fn(),
 }));
-vi.mock('../../../../src/net/messaging/incoming/displayed-marker.js', () => ({
+vi.mock('../../../../src/net/messaging/displayed-marker.js', () => ({
   handleDisplayedMarker: vi.fn(),
 }));
 vi.mock('../../../../src/net/messaging/incoming/call-signal.js', () => ({
@@ -17,11 +17,10 @@ vi.mock('../../../../src/net/messaging/incoming/call-signal.js', () => ({
 import { earlyHandlers } from '../../../../src/net/messaging/incoming/early-handlers.js';
 import { omemo } from '../../../../src/crypto/omemo/state.js';
 import { handleCorrection } from '../../../../src/net/messaging/incoming/correction.js';
-import { handleDisplayedMarker } from '../../../../src/net/messaging/incoming/displayed-marker.js';
+import { handleDisplayedMarker } from '../../../../src/net/messaging/displayed-marker.js';
 import { handleCallSignal } from '../../../../src/net/messaging/incoming/call-signal.js';
 
-// Плоский мок stanza: querySelector отдаёт то, что положили в selectors,
-// getAttribute отдаёт то, что положили в attrs.
+// Плоский мок stanza: querySelector -> selectors, getAttribute -> attrs.
 function fakeStanza(selectors = {}, attrs = {}){
   return {
     querySelector: (sel) => (sel in selectors ? selectors[sel] : null),
@@ -32,23 +31,16 @@ function fakeStanza(selectors = {}, attrs = {}){
 describe('earlyHandlers', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it('[0] type=error - совпадает независимо от содержимого станзы, handle ничего не делает', () => {
+  it('[0] type=error - совпадает, handle ничего не делает', () => {
     const h = earlyHandlers[0];
     expect(h.match(fakeStanza(), null, 'error')).toBe(true);
     expect(h.match(fakeStanza(), null, 'chat')).toBe(false);
-    expect(() => h.handle()).not.toThrow();
-  });
-
-  it('[1] MAM-результат (result[xmlns=urn:xmpp:mam:2]) - совпадает, handle ничего не делает (разбирается отдельно)', () => {
-    const h = earlyHandlers[1];
-    const stanza = fakeStanza({ 'result[xmlns="urn:xmpp:mam:2"]': { tagName: 'result' } });
-    expect(h.match(stanza)).toBe(true);
     expect(h.match(fakeStanza())).toBe(false);
     expect(() => h.handle()).not.toThrow();
   });
 
-  it('[2] call-signal с правильным namespace - совпадает и делегирует в handleCallSignal(stanza, bare)', async () => {
-    const h = earlyHandlers[2];
+  it('[1] call-signal с правильным namespace - совпадает и делегирует в handleCallSignal(stanza, bare)', async () => {
+    const h = earlyHandlers[1];
     const sigEl = { namespaceURI: NS_CALL };
     const stanza = fakeStanza({ 'call-signal': sigEl });
     expect(h.match(stanza)).toBe(true);
@@ -57,14 +49,14 @@ describe('earlyHandlers', () => {
     expect(handleCallSignal).toHaveBeenCalledWith(stanza, 'alice@example.com');
   });
 
-  it('[2] элемент <call-signal> с чужим namespace - НЕ совпадает (не наш неймспейс)', () => {
-    const h = earlyHandlers[2];
+  it('[1] элемент <call-signal> с чужим namespace - НЕ совпадает (не наш неймспейс)', () => {
+    const h = earlyHandlers[1];
     const stanza = fakeStanza({ 'call-signal': { namespaceURI: 'someone:else:0' } });
     expect(h.match(stanza)).toBe(false);
   });
 
-  it('[3] <replace> с NS_LAST_MESSAGE_CORRECTION - совпадает и делегирует в handleCorrection', async () => {
-    const h = earlyHandlers[3];
+  it('[2] <replace> с NS_LAST_MESSAGE_CORRECTION - совпадает и делегирует в handleCorrection', async () => {
+    const h = earlyHandlers[2];
     const replaceEl = { namespaceURI: NS_LAST_MESSAGE_CORRECTION };
     const stanza = fakeStanza({ replace: replaceEl });
     expect(h.match(stanza)).toBe(true);
@@ -73,8 +65,8 @@ describe('earlyHandlers', () => {
     expect(handleCorrection).toHaveBeenCalledWith(stanza, 'alice@example.com');
   });
 
-  it('[4] <event> с NS_PUBSUB_EVENT - совпадает и делегирует в omemo.handlePubsubEvent(bare, eventEl)', () => {
-    const h = earlyHandlers[4];
+  it('[3] <event> с NS_PUBSUB_EVENT - совпадает и делегирует в omemo.handlePubsubEvent(bare, eventEl)', () => {
+    const h = earlyHandlers[3];
     const eventEl = { namespaceURI: NS_PUBSUB_EVENT };
     const stanza = fakeStanza({ event: eventEl });
     expect(h.match(stanza)).toBe(true);
@@ -83,8 +75,8 @@ describe('earlyHandlers', () => {
     expect(omemo.handlePubsubEvent).toHaveBeenCalledWith('alice@example.com', eventEl);
   });
 
-  it('[5] <displayed> с NS_CHAT_MARKERS - совпадает и делегирует в handleDisplayedMarker(bare, id)', () => {
-    const h = earlyHandlers[5];
+  it('[4] <displayed> с NS_CHAT_MARKERS - совпадает и делегирует в handleDisplayedMarker(bare, id)', () => {
+    const h = earlyHandlers[4];
     const displayedEl = { namespaceURI: NS_CHAT_MARKERS, getAttribute: (a) => (a === 'id' ? 'msg-7' : null) };
     const stanza = fakeStanza({ displayed: displayedEl });
     expect(h.match(stanza)).toBe(true);

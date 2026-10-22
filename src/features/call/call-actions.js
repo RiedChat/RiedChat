@@ -1,137 +1,85 @@
 // ===================== features/call/call-actions.js =====================
-// Действия над уже существующим звонком (S.call): завершение, отклонение,
-// принятие входящего, мьют/камера.
+// Действия над текущим звонком (state.call): завершение, отклонение, принятие, мьют/камера.
 import { state } from '../../core/state.js';
 import { sendCallSignal } from '../../net/messaging/outgoing/call-signal.js';
-import { getIceServers } from '../../net/turn/extdisco.js';
 import { renderCallUI } from '../../ui/call-view.js';
-import { setCall, teardown } from './call-state.js';
-import { acquireLocalMedia, addLocalTracksToCall, addRecvOnlyTransceivers, detectCallMultipleCameras, switchCallCamera } from './media.js';
-import { createPeerConnection, flushPendingCandidates } from './peer-connection.js';
-import { logCallEvent, callEndSummary } from './call-log.js';
+
+import { endCall, peerJid } from './call-state.js';
+import { acquireLocalMedia, switchCallCamera } from './media.js';
+import { startPeer, answerOffer } from './peer-connection.js';
 import { stopRingtone } from './ringtone.js';
 
-const S = state;
-
 export async function hangup(){
-  if(!S.call) return;
-  const call = S.call;
-  stopRingtone();
-  const targets = call.ringingTargets && call.ringingTargets.size
-    ? Array.from(call.ringingTargets)
-    : [call.remoteJid || call.bareJid];
+  if(!state.call) return;
+  const call = state.call;
+  const targets = call.ringingTargets?.size ? [...call.ringingTargets] : [peerJid(call)];
   await Promise.all(targets.map(t => sendCallSignal(t, 'hangup', call.id, null)));
-  logCallEvent(call, callEndSummary(call, 'hangup'));
-  teardown(call);
-  setCall(null);
+  endCall(call, 'hangup');
 }
 
 export async function decline(){
-  if(!S.call || S.call.direction !== 'in') return;
-  const call = S.call;
-  stopRingtone();
-  await sendCallSignal(call.remoteJid || call.bareJid, 'decline', call.id, null);
-  logCallEvent(call, callEndSummary(call, 'declined-by-us'));
-  teardown(call);
-  setCall(null);
+  if(!state.call || state.call.direction !== 'in') return;
+  const call = state.call;
+  await sendCallSignal(peerJid(call), 'decline', call.id, null);
+  endCall(call, 'declined-by-us');
 }
 
 export async function acceptCall(){
-  const call = S.call;
+  const call = state.call;
   if(!call || call.direction !== 'in' || call.status !== 'ringing-in') return { accepted:false, reason:'no-incoming-call' };
   stopRingtone();
 
-  // Запрашиваем камеру только если сам оффер её содержит (call.hasVideo,
-  // выставлен в signal-handlers.js:_onOffer по m=video в SDP) - на
-  // голосовой звонок нет смысла спрашивать доступ к камере. localStream
-  // может вернуться null (нет устройств/отказано в доступе) - принимаем
-  // звонок всё равно, как приёмная сторона (см. acquireLocalMedia()).
+  // Камеру запрашиваем только если оффер её содержит (call.hasVideo, signal-handlers.js:_onOffer по m=video в SDP).
+  // localStream может быть null (нет устройств/отказ) - звонок всё равно принимаем как приёмная сторона (acquireLocalMedia()).
   const localStream = await acquireLocalMedia(call.hasVideo);
   call.localStream = localStream;
   call.noLocalMedia = !localStream;
-  call.facingMode = 'user';
-  call.multipleCameras = false;
   call.status = 'connecting';
   renderCallUI();
 
-  if(call.hasVideo && localStream && localStream.getVideoTracks().length){
-    detectCallMultipleCameras().then(has => {
-      if(S.call !== call) return;
-      call.multipleCameras = has;
-      renderCallUI();
-    });
-  }
-
-  const iceServers = await getIceServers();
-  call.pc = createPeerConnection(call, iceServers);
-  if(localStream){
-    addLocalTracksToCall(call, localStream);
-  } else {
-    addRecvOnlyTransceivers(call.pc, call.hasVideo);
-  }
+  await startPeer(call, localStream);
 
   try{
-    await call.pc.setRemoteDescription(new RTCSessionDescription(call.offer));
-    await flushPendingCandidates(call);
-    const answer = await call.pc.createAnswer();
-    await call.pc.setLocalDescription(answer);
-    const { sent, reason } = await sendCallSignal(call.remoteJid || call.bareJid, 'answer', call.id, { sdp: answer.sdp, type: answer.type });
+    const payload = await answerOffer(call, call.offer);
+    const { sent, reason } = await sendCallSignal(peerJid(call), 'answer', call.id, payload);
     if(!sent){
-      teardown(call);
-      setCall(null);
+      endCall(call);
       return { accepted:false, reason };
     }
   }catch(e){
     console.warn('acceptCall: negotiation failed', e);
-    teardown(call);
-    setCall(null);
+    endCall(call);
     return { accepted:false, reason:'negotiation-error' };
   }
   return { accepted:true };
 }
 
-// Реальное отключение звука/камеры - переключает MediaStreamTrack.enabled,
-// без пересогласования: приёмная сторона просто получает тишину/чёрный
-// кадр, трек остаётся тем же (в отличие от remove/addTrack не требует
-// повторного offer/answer).
-export function toggleMute(){
-  if(!S.call || !S.call.localStream) return;
-  S.call.muted = !S.call.muted;
-  S.call.localStream.getAudioTracks().forEach(t => t.enabled = !S.call.muted);
+// Отключение звука/камеры через MediaStreamTrack.enabled, без пересогласования: собеседник получает тишину/чёрный кадр, трек тот же.
+// prop - флаг в state.call ("muted"/"cameraOff"), tracksOf - выбор треков нужного типа из localStream.
+function toggleTracks(prop, tracksOf){
+  const call = state.call;
+  if(!call || !call.localStream) return;
+  call[prop] = !call[prop];
+  tracksOf(call.localStream).forEach(tr => { tr.enabled = !call[prop]; });
   renderCallUI();
 }
 
-export function toggleCamera(){
-  if(!S.call || !S.call.localStream) return;
-  S.call.cameraOff = !S.call.cameraOff;
-  S.call.localStream.getVideoTracks().forEach(t => t.enabled = !S.call.cameraOff);
-  renderCallUI();
-}
+export const toggleMute = () => toggleTracks('muted', s => s.getAudioTracks());
+export const toggleCamera = () => toggleTracks('cameraOff', s => s.getVideoTracks());
 
-// Смена фронтальная/задняя камера посреди видеозвонка - сама подмена трека
-// (и пересборка зеркальной canvas-копии для фронталки) в media.js:
-// switchCallCamera(), здесь только вызов + перерисовка UI.
+// Смена фронтальной/задней камеры посреди звонка: подмена трека (и зеркальной canvas-копии для фронталки) - media.js:switchCallCamera(), здесь вызов и перерисовка UI.
 export async function switchCamera(){
-  if(!S.call || !S.call.hasVideo) return;
-  await switchCallCamera(S.call);
+  if(!state.call || !state.call.hasVideo) return;
+  await switchCallCamera(state.call);
   renderCallUI();
 }
 
-
-// Сворачивание звонка - не завершает его (S.call остаётся как есть, треки и
-// RTCPeerConnection не трогаем), просто прячем #call-overlay и даём вернуться
-// в меню/переписку. Видео/аудио-элементы продолжают играть в свёрнутом
-// состоянии - display:none браузером не паузит уже идущий playback. Пока
-// свёрнуто, ui/chat-head.js:renderCallBanner показывает плашку "вернуться
-// к звонку" в чате с тем же собеседником.
-export function minimizeCall(){
-  if(!S.call) return;
-  S.call.minimized = true;
+// Сворачивание не завершает звонок (state.call, треки и RTCPeerConnection не трогаем), только прячет #call-overlay.
+// Видео/аудио продолжают играть (display:none не паузит playback). Пока свёрнуто, ui/call-view.js:renderCallBanner показывает плашку "вернуться к звонку".
+const setMinimized = (minimized) => {
+  if(!state.call) return;
+  state.call.minimized = minimized;
   renderCallUI();
-}
-
-export function restoreCall(){
-  if(!S.call) return;
-  S.call.minimized = false;
-  renderCallUI();
-}
+};
+export const minimizeCall = () => setMinimized(true);
+export const restoreCall = () => setMinimized(false);

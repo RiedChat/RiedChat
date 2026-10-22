@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { IdentityStore } from '../../src/crypto/identity-store.js';
-import { bytes as B } from '../../src/crypto/bytes.js';
+import { identityMethods } from '../../src/crypto/identity-store.js';
+import * as B from '../../src/crypto/bytes.js';
 
-// Настоящий idb (idb-kv.js) - это IndexedDB; логика TOFU/лимита устройств от
-// него не зависит, только от get/set/del/keys с префиксным поиском -
-// подменяем его простым in-memory Map, чтобы не тащить indexedDB в тест.
+// idb-kv.js (IndexedDB) подменён in-memory Map: логика TOFU/лимита зависит только
+// от get/set/del/keys с префиксом.
 function fakeIdb(){
   const m = new Map();
   return {
@@ -12,8 +11,18 @@ function fakeIdb(){
     async set(key, val){ m.set(key, val); },
     async del(key){ m.delete(key); },
     async keys(prefix){ return Array.from(m.keys()).filter(k => !prefix || k.startsWith(prefix)); },
+    async entries(prefix){ return (await this.keys(prefix)).map(k => [k, m.get(k)]); },
   };
 }
+
+class IdentityStore{
+  constructor(idb, ns){ this.idb = idb; this.ns = ns; }
+  _k(kind, id = ''){ return this.ns + kind + ':' + id; }
+  _get(kind, id){ return this.idb.get(this._k(kind, id)); }
+  _set(kind, id, value){ return this.idb.set(this._k(kind, id), value); }
+  _del(kind, id){ return this.idb.del(this._k(kind, id)); }
+}
+Object.assign(IdentityStore.prototype, identityMethods);
 
 function keyBuf(seed){ return new Uint8Array(32).fill(seed).buffer; }
 
@@ -65,16 +74,14 @@ describe('IdentityStore: TOFU-доверие (isTrustedIdentity)', () => {
     const resolved = await store.resolvePendingSlot('alice@example.com.2');
     expect(resolved).toBe(true);
     expect(await store.listPendingSlotDevices('alice@example.com')).toHaveLength(0);
-    // Теперь то же устройство доверяется обычным путём, без повторной очереди.
+    // Теперь устройство доверяется обычным путём, без очереди.
     const trusted = await store.isTrustedIdentity('alice@example.com.2', keyBuf(2));
     expect(trusted).toBe(true);
   });
 
   it('setMaxDevicesPerContact ограничивает значение диапазоном 1..5', async () => {
-    // ВНИМАНИЕ: 0 - falsy, поэтому `Number(n) || 5` в device-limit.js трактует
-    // его как "не передали", а не как нижнюю границу диапазона - на выходе 5,
-    // а не 1. Задокументировано здесь как есть, а не как "должно быть",
-    // на случай если это неочевидный побочный эффект, а не осознанный выбор.
+    // ВНИМАНИЕ: 0 falsy, поэтому `Number(n) || 5` в identity-store.js (setMaxDevicesPerContact) даёт 5, а не 1.
+    // Зафиксировано как есть - возможный неочевидный побочный эффект.
     expect(await store.setMaxDevicesPerContact(0)).toBe(5);
     expect(await store.setMaxDevicesPerContact(-1)).toBe(1);
     expect(await store.setMaxDevicesPerContact(99)).toBe(5);

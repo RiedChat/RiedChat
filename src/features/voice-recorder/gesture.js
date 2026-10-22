@@ -1,52 +1,32 @@
 // ===================== features/voice-recorder/gesture.js =====================
-// Жест на кнопке микрофона: короткий тап vs зажатие ≥3с. pointerdown
-// запускает таймер на AUDIO_HOLD_THRESHOLD_MS. Если он успевает сработать,
-// пока кнопка ещё нажата, - это зажатие: стартует запись голосового
-// (recorder.startRecording). Если пользователь отпускает кнопку РАНЬШЕ, чем
-// сработал таймер, - это короткий тап: открываем запись кружка
-// (video-note.js). pointerleave/pointercancel до срабатывания таймера
-// просто гасят жест, ничего не запуская (чтобы случайный свайп с кнопки не
-// стартовал запись).
+// Жест на кнопке микрофона: pointerdown запускает таймер AUDIO_HOLD_THRESHOLD_MS.
+// Таймер сработал при нажатой кнопке - зажатие, старт голосового (recorder.startRecording).
+// Отпускание раньше таймера - короткий тап, открывается кружок (video-note.js).
+// pointerleave/pointercancel до таймера гасят жест.
 import { $ } from '../../core/dom-utils.js';
-import { AUDIO_HOLD_THRESHOLD_MS } from './state.js';
+
+// Порог удержания: короткий тап - кружок, удержание ≥1,5с - голосовое.
+const AUDIO_HOLD_THRESHOLD_MS = 1500;
 
 export function wireMicGesture(recorder){
+  const btn = $('mic-btn');
   let holdTimer = null;
   let holdFired = false;
-  let pressActive = false;
 
-  function clearHoldTimer(){
-    if(holdTimer){ clearTimeout(holdTimer); holdTimer = null; }
-  }
-  function onMicPointerDown(e){
-    if(typeof e.button === 'number' && e.button !== 0) return; // только левая кнопка мыши/тач/перо
-    pressActive = true;
+  const clearHoldTimer = () => { clearTimeout(holdTimer); holdTimer = null; };
+
+  btn.addEventListener('pointerdown', (e) => {
+    if(typeof e.button === 'number' && e.button !== 0) return; // только левая кнопка/тач/перо
     holdFired = false;
     clearHoldTimer();
-    holdTimer = setTimeout(() => {
-      holdTimer = null;
-      holdFired = true;
-      if(pressActive) recorder.startRecording();
-    }, AUDIO_HOLD_THRESHOLD_MS);
-  }
-  function onMicPointerUp(){
-    const wasHeldLongEnough = holdFired;
-    pressActive = false;
+    holdTimer = setTimeout(() => { holdFired = true; recorder.startRecording(); }, AUDIO_HOLD_THRESHOLD_MS);
+  });
+  btn.addEventListener('pointerup', () => {
     clearHoldTimer();
-    // Если порог не сработал - короткий тап, запускаем кружок. Если сработал -
-    // голосовое уже стартовало по таймеру, отпускание кнопки его не трогает:
-    // запись продолжается до явного нажатия на "отправить"/"отменить" выше.
-    // Кружок открывается редко относительно голосовых - не тянем весь
-    // features/video-note/* в основной чанк ради одного короткого тапа.
-    if(!wasHeldLongEnough) import('../video-note.js').then(m => m.startVideoNoteRecording());
-  }
-  function onMicPointerCancel(){
-    pressActive = false;
-    clearHoldTimer();
-  }
-
-  $('mic-btn').addEventListener('pointerdown', onMicPointerDown);
-  $('mic-btn').addEventListener('pointerup', onMicPointerUp);
-  $('mic-btn').addEventListener('pointerleave', onMicPointerCancel);
-  $('mic-btn').addEventListener('pointercancel', onMicPointerCancel);
+    // Порог не сработал - тап, запускаем кружок. Сработал - голосовое уже идёт, отпускание его не трогает
+    // (запись до явного "отправить"/"отменить"). Кружок грузим лениво, чтобы не тянуть video-note/* в основной чанк.
+    if(!holdFired) import('../video-note.js').then(m => m.startVideoNoteRecording());
+  });
+  btn.addEventListener('pointerleave', clearHoldTimer);
+  btn.addEventListener('pointercancel', clearHoldTimer);
 }

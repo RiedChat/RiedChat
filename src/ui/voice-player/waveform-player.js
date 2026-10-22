@@ -1,100 +1,54 @@
 // ===================== ui/voice-player/waveform-player.js =====================
-// Режим 1: обычная запись голоса (нет ID3-тегов) - компактная строка
-// с амплитудной волной вместо нативных <audio controls>.
-// Разметка/события - здесь; отрисовка canvas - waveform-draw.js;
-// вычисление пиков - waveform-peaks.js.
-import { createLruMap } from '../../core/lru-map.js';
+// Режим 1: обычная голосовая запись (без ID3) - компактная строка с амплитудной волной вместо нативных <audio controls>. Разметка/события - здесь, стили волны - css/voice-player.css, пики - waveform-peaks.js.
+import { formatMmSs } from '../../core/dom-utils.js';
+import { createLruMemo } from '../../core/lru-map.js';
 import { html, setHTML } from '../../core/safe-html.js';
-import { t } from '../../i18n/t.js';
 
-import { wireVoiceAudio } from './audio-lifecycle.js';
-import { drawWaveform, sizeWaveformCanvas } from './waveform-draw.js';
+import { bindTimeline, mountVoiceFrame, playButtonHtml, seekByClick, wireVoiceAudio } from './audio-lifecycle.js';
 import { computeWaveformPeaks } from './waveform-peaks.js';
 
-// Кэш посчитанных амплитудных пиков по blobUrl - тот же аргумент, что и в
-// mount.js:_prepared: blobUrl стабилен для одного и того же вложения между
-// перерисовками, поэтому AudioContext/decodeAudioData незачем гонять заново
-// на каждый ремонт уже показанного голосового сообщения. Ограничен по
-// размеру (см. core/lru-map.js) - без границы рос бы всю сессию вкладки.
-const _peaksCache = createLruMap(200); // blobUrl -> Promise<Float32Array-like number[]>
+// Кэш амплитудных пиков по blobUrl (как mount.js:_prepared): blobUrl стабилен между перерисовками, AudioContext/decodeAudioData не гоняем заново. Размер ограничен (core/lru-map.js).
+const _peaksCache = createLruMemo(200); // blobUrl -> Promise<number[] (Float32Array-like)>
 
-function computePeaksOnce(blobUrl, arrayBuffer){
-  if(_peaksCache.has(blobUrl)){ _peaksCache.touch(blobUrl); return _peaksCache.get(blobUrl); }
-  const p = computeWaveformPeaks(arrayBuffer);
-  _peaksCache.set(blobUrl, p);
-  return p;
-}
+const computePeaksOnce = (blobUrl, arrayBuffer) =>
+  _peaksCache(blobUrl, () => computeWaveformPeaks(arrayBuffer));
 
-const fmt = (s) => {
-  if(!isFinite(s) || s < 0) s = 0;
-  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
-  return m + ':' + String(sec).padStart(2, '0');
-};
+const barsHtml = peaks => html`${peaks.map(p => html`<i style="height:${Math.max(4, Math.round(p * 100))}%"></i>`)}`;
 
-// host - контейнер (.media-frame либо .media-embed), blobUrl - расшифрованный
-// файл, arrayBuffer - те же байты для расчёта амплитудной волны.
+// host - контейнер (.media-frame или .media-embed), blobUrl - расшифрованный файл, arrayBuffer - те же байты для расчёта волны.
 export async function mountWaveformPlayer(host, blobUrl, arrayBuffer){
-  setHTML(host, html`
+  const markup = html`
     <div class="voice-msg">
-      <button class="voice-play" type="button" aria-label="${t('voicePlayer.play')}" aria-pressed="false">
-        <svg class="ic-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-        <svg class="ic-pause" viewBox="0 0 24 24" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
-      </button>
+      ${playButtonHtml()}
       <div class="voice-body">
-        <canvas class="voice-wave"></canvas>
-        <div class="voice-time">0:00</div>
+        <div class="voice-wave"></div>
+        <div class="voice-time">${formatMmSs(0)}</div>
       </div>
-    </div>`);
+    </div>`;
 
-  const audio = new Audio(blobUrl);
-  audio.preload = 'metadata';
+  const { audio, els } = mountVoiceFrame(host, blobUrl, markup, { wave: '.voice-wave', timeEl: '.voice-time' });
+  const { wave, timeEl } = els;
+  // Доля воспроизведённого (0..1) - переменная --p; яркий слой волны обрезается по ней в CSS.
+  const setProgress = frac => wave.style.setProperty('--p', frac);
 
-  const btn = host.querySelector('.voice-play');
-  const iconPlay = host.querySelector('.ic-play');
-  const iconPause = host.querySelector('.ic-pause');
-  const canvas = host.querySelector('.voice-wave');
-  const timeEl = host.querySelector('.voice-time');
-  const cx = canvas.getContext('2d');
-
-  let peaks = null;
-  let duration = 0;
-  let playedFrac = 0;
-
-  const draw = () => {
-    const color = getComputedStyle(host).color || '#000';
-    drawWaveform(canvas, cx, peaks, playedFrac, color);
-  };
-
-  const sizeCanvas = () => sizeWaveformCanvas(canvas, draw);
-
-  audio.addEventListener('loadedmetadata', () => {
-    duration = audio.duration || 0;
-    timeEl.textContent = fmt(duration);
+  bindTimeline(audio, {
+    onDuration: duration => { timeEl.textContent = formatMmSs(duration); },
+    onTime: (currentTime, duration) => {
+      if(duration > 0) setProgress(currentTime / duration);
+      timeEl.textContent = formatMmSs(currentTime);
+    },
+    onEnded: duration => {
+      setProgress(0);
+      timeEl.textContent = formatMmSs(duration);
+    },
   });
-  audio.addEventListener('timeupdate', () => {
-    if(duration > 0) playedFrac = audio.currentTime / duration;
-    timeEl.textContent = fmt(audio.currentTime);
-    draw();
-  });
-  wireVoiceAudio(audio, iconPlay, iconPause, {host});
-  audio.addEventListener('ended', () => {
-    playedFrac = 0; draw();
-    timeEl.textContent = fmt(duration);
+  wireVoiceAudio(audio, host);
+
+  wave.addEventListener('click', (e) => {
+    const frac = seekByClick(audio, wave, e.clientX);
+    if(frac !== null) setProgress(frac);
   });
 
-  btn.addEventListener('click', () => {
-    if(audio.paused) audio.play().catch(() => {}); else audio.pause();
-  });
-  canvas.addEventListener('click', (e) => {
-    if(!duration) return;
-    const rect = canvas.getBoundingClientRect();
-    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    audio.currentTime = frac * duration;
-    playedFrac = frac; draw();
-  });
-
-  requestAnimationFrame(sizeCanvas);
-  peaks = await computePeaksOnce(blobUrl, arrayBuffer);
-  sizeCanvas();
+  const bars = barsHtml(await computePeaksOnce(blobUrl, arrayBuffer));
+  setHTML(wave, html`<div class="bars">${bars}</div><div class="bars played">${bars}</div>`);
 }
-

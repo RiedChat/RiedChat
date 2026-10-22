@@ -1,12 +1,12 @@
 // ===================== features/video-note/preview.js =====================
-// Судьба записанного ролика после остановки: отпустить blob-URL, стереть
-// превью без отправки или отправить тем же путём, что голосовые/файлы.
+// Судьба записанного ролика: освободить blob-URL, стереть превью без отправки или отправить как голосовые/файлы.
 import { $, toast } from '../../core/dom-utils.js';
 import { state } from '../../core/state.js';
+import { t } from '../../i18n/t.js';
 import { uploadAndSend } from '../../net/upload.js';
+
 import { S } from './state.js';
 import { showModal } from './ui.js';
-import { t } from '../../i18n/t.js';
 
 export function releasePreviewBlob(){
   if(S.recordedUrl){ URL.revokeObjectURL(S.recordedUrl); S.recordedUrl = null; }
@@ -24,15 +24,10 @@ export function discardPreview(){
 
 export function sendPreview(){
   if(!S.recordedBlob){ showModal(false); return; }
-  // .webm - единственное расширение, которое реально пишет MediaRecorder
-  // в поддерживаемых браузерах (см. recording.js/pickMimeType);
-  // net/media/mime-kind.js определяет по нему kind='video' как для обычных
-  // видео-сообщений, а префикс "videonote-" в имени файла отличает кружок
-  // для круглого рендера в чате (см. ui/chat-view/bubble-renderers.js,
-  // media-loader.js).
+  // .webm - единственное расширение MediaRecorder в поддерживаемых браузерах (recording.js/pickMimeType); net/media/mime-kind.js по нему даёт kind="video".
+  // Префикс "videonote-" отличает кружок для круглого рендера (ui/chat-view/bubble-renderers.js, media-loader/encrypted-media.js).
   const file = new File([S.recordedBlob], 'videonote-' + Date.now() + '.webm', {type: S.recordedBlob.type || 'video/webm'});
-  // Превью снято ещё в recording-stop.js прямо с канваса записи (см. там
-  // комментарий) - забираем ДО releasePreviewBlob(), которая его обнулит.
+  // Превью снято в recording-stop.js с канваса записи - забираем ДО releasePreviewBlob(), которая его обнулит.
   const thumbnailB64url = S.recordedThumbB64url;
   releasePreviewBlob();
   showModal(false);

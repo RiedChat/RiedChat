@@ -1,213 +1,113 @@
 // ===================== crypto/omemo-vault.js =====================
-// Общий с учётной записью зашифрованный блок в localStorage (LS_KEY, см.
-// core/constants.js) вида { account: {wsUrl,jid,password}|null, omemoKeys:
-// { [bareJid]: rawKeyB64 } } - OMEMO data-key'и (identity/prekey/session,
-// см. crypto/idb-kv.js:EncryptedIdbKv) лежат в ТОМ ЖЕ блоке, что и
-// сохранённая учётка, и шифруются/расшифровываются ОДНИМ вызовом
-// vault.encrypt/decrypt.
+// Общий с учёткой зашифрованный блок в localStorage (LS_KEY, core/constants.js):
+// { account: {wsUrl,jid,password}|null, omemoKeys: { [bareJid]: rawKeyB64 } }.
+// OMEMO data-key'и (idb-kv.js:EncryptedIdbKv) лежат в том же блоке, что и учётка,
+// и шифруются одним vault.encrypt/decrypt.
 //
-// БАГ (исправлено): раньше у OMEMO data-key был свой отдельный localStorage-
-// ключ ('xmppOmemoStorageKey:'+bareJid) и свой независимый vault.encrypt/
-// decrypt-вызов - отдельный от того, что делает connect.js:persistAccount()
-// для учётки. Для режима vault 'android-native' каждый такой вызов - это
-// отдельный BiometricPrompt (ключ живёт в AndroidKeyStore, наружу в JS не
-// отдаётся, см. vault.js), а не обычный in-memory CryptoKey, который можно
-// закэшировать один раз на сессию. В сумме на логин с "запомнить на
-// устройстве" выходило ДВА промпта подряд вместо одного - а если пользователь
-// не успевал/не проходил второй (для OMEMO), тот тихо не инициализировался
-// (catch в bootstrap.js глотал ошибку в toast), хотя сам логин по первому
-// промпту уже успевал отработать. Теперь оба секрета лежат в одном блоке и
-// шифруются одним вызовом (см. flushVaultBlob, дергается один раз из
-// connect.js после того, как туда внесены правки И по учётке, И по OMEMO-
-// ключу) - один логин с изменениями на диске = один BiometricPrompt.
+// Причина (БАГ исправлен): при отдельном ключе ('xmppOmemoStorageKey:'+bareJid) и отдельном vault-вызове
+// режим 'android-native' давал BiometricPrompt на каждый вызов (ключ в AndroidKeyStore, в JS не кэшируется):
+// на логин с "запомнить на устройстве" выходило два промпта, а при пропуске второго OMEMO тихо не
+// инициализировался (catch в bootstrap.js глотал ошибку). Теперь один блок и один вызов (flushVaultBlob,
+// один раз из connect.js после правок учётки и OMEMO-ключа) - один BiometricPrompt на логин.
 //
-// Сам data-key всё равно не шифруется/расшифровывается на каждую операцию с
-// IndexedDB (это было бы неюзабельно - loadSession/storeSession и т.п.
-// вызываются десятки раз на сообщение): после того как он один раз получен
-// из vault-блока, он живёт в памяти вкладки как non-extractable CryptoKey
-// (memCache) и им уже без каких-либо промптов шифруется/расшифровывается
-// каждая запись OMEMO kv.
-import { lsGet, lsSetStrict, lsRemove } from '../core/storage.js';
-import { vault } from './vault.js';
-import { state } from '../core/state.js';
-import { debugLog } from '../core/debug-log.js';
+// Data-key не шифруется на каждую операцию с IndexedDB (десятки вызовов на сообщение): один раз получив его
+// из vault-блока, держим в памяти вкладки как non-extractable CryptoKey (memCache)
+// и шифруем записи OMEMO kv без промптов.
 import { LS_KEY } from '../core/constants.js';
+import { state } from '../core/state.js';
+import { lsGet, lsSetStrict } from '../core/storage.js';
+
+import * as bytes from './bytes.js';
+import { vault } from './vault.js';
+
 
 const memCache = new Map(); // bareJid -> CryptoKey
 let dirty = false;
 
-function b64enc(buf){ return btoa(String.fromCharCode(...new Uint8Array(buf))); }
-function b64dec(str){ return Uint8Array.from(atob(str), c => c.charCodeAt(0)).buffer; }
+const emptyBlob = () => ({ account: null, omemoKeys: {}, historyKeys: {} });
 
-// Формат до объединения с учёткой - просто {wsUrl,jid,password} напрямую в
-// LS_KEY. Распознаём по наличию 'jid' и превращаем в новый формат при чтении,
-// чтобы у уже установленных клиентов ничего не потерялось.
-function normalizeBlob(raw){
-  if(!raw) return { account: null, omemoKeys: {}, historyKeys: {} };
-  if(raw.jid !== undefined || raw.wsUrl !== undefined){
-    return { account: raw, omemoKeys: {}, historyKeys: {} };
-  }
-  return { account: raw.account || null, omemoKeys: raw.omemoKeys || {}, historyKeys: raw.historyKeys || {} };
+// Выводит ключ vault (создаёт режим при первом обращении) - общий пролог операций с vault-блоком.
+async function unlockVault(passphraseProvider){
+  await vault.ensureSetup(passphraseProvider);
+  return vault.unlock(passphraseProvider);
 }
 
-// Расшифровывает общий vault-блок не чаще одного раза за сессию - результат
-// кэшируется в state.vaultBlob. Если LS_KEY ещё нет на диске (первый запуск
-// / rememberMe ни разу не включали и OMEMO ещё не инициализировался) -
-// просто заводит пустой блок в памяти, никакого похода к vault и биометрии.
+const newRawKeyB64 = () => bytes.b64FromBuf(bytes.randomBytes(32));
+const importAesKey = (rawKeyB64) => crypto.subtle.importKey(
+  'raw', bytes.bufFromB64(rawKeyB64), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+
+// Удаляет data-key из памяти и из неймспейса vault-блока (field: 'omemoKeys'/'historyKeys'), без записи на диск.
+// Используется при logout/deleteAllForAccount (net/history.js) и store.js:deleteSignalStore: logout (ui/modals.js)
+// сам удаляет весь LS_KEY и делает location.reload(), лишний encrypt означал бы ненужный BiometricPrompt при выходе.
+export function forgetKey(field, bareJid){
+  memCache.delete(memKeyOf(field, bareJid));
+  delete state.vaultBlob?.[field]?.[bareJid];
+}
+
+// Зашифрованная запись имеет форму {v:1, iv, data} (encryptOmemoValue). Остальное - legacy, отдаём как есть.
+export const isEncryptedRecord = (v) =>
+  v?.v === 1 && typeof v.iv === 'string' && typeof v.data === 'string';
+
+// Старый формат - {wsUrl,jid,password} прямо в LS_KEY. Распознаём по 'jid' и конвертируем при чтении.
+const normalizeBlob = (raw) => ({ ...emptyBlob(), ...raw });
+
+// Расшифровывает общий vault-блок не чаще раза за сессию (кэш в state.vaultBlob).
+// Если LS_KEY на диске нет - заводит пустой блок в памяти, без vault и биометрии.
 export async function getVaultBlob(passphraseProvider){
   if(state.vaultBlob) return state.vaultBlob;
   const raw = lsGet(LS_KEY, null);
-  if(!raw || !raw.data || !raw.iv){
-    state.vaultBlob = { account: null, omemoKeys: {}, historyKeys: {} };
-    return state.vaultBlob;
-  }
-  await vault.ensureSetup(null, passphraseProvider);
-  const key = await vault.unlock(passphraseProvider);
-  const decrypted = await vault.decrypt(key, raw);
-  state.vaultBlob = normalizeBlob(decrypted);
-  return state.vaultBlob;
+  const data = isEncryptedRecord(raw) ? await vault.decrypt(await unlockVault(passphraseProvider), raw) : null;
+  return (state.vaultBlob = normalizeBlob(data));
 }
 
 export function markVaultBlobDirty(){ dirty = true; }
 
-// Пишет ВЕСЬ блок (учётка + все OMEMO data-key'и) одним вызовом vault.encrypt.
-// Ничего не делает, если с момента последней записи (или загрузки) ничего не
-// поменяли - вызывать можно смело хоть после каждого шага, лишний
-// биометрический промпт от этого не появится.
+// Пишет весь блок (учётка + OMEMO data-key'и) одним vault.encrypt. Без изменений с последней записи
+// ничего не делает - можно вызывать после каждого шага без лишнего биометрического промпта.
 export async function flushVaultBlob(passphraseProvider){
   if(!dirty || !state.vaultBlob) return;
-  await vault.ensureSetup(null, passphraseProvider);
-  const key = await vault.unlock(passphraseProvider);
+  const key = await unlockVault(passphraseProvider);
   const blob = await vault.encrypt(key, state.vaultBlob);
-  // lsSetStrict бросает при неудаче (квота localStorage). dirty сбрасывается
-  // только после успешной записи: раньше при переполненном localStorage
-  // data-key истории жил лишь в памяти, а зашифрованная им история
-  // оставалась на диске - после перезапуска ключ генерировался заново,
-  // расшифровка падала и переписка обнулялась.
+  // lsSetStrict бросает при неудаче (квота). dirty сбрасывается только после успешной записи:
+  // иначе data-key истории жил бы только в памяти при зашифрованной на диске истории,
+  // и после перезапуска расшифровка падала, а переписка обнулялась.
   lsSetStrict(LS_KEY, blob);
   dirty = false;
 }
 
-// Возвращает (создавая при необходимости, но НЕ записывая на диск - это
-// делает flushVaultBlob) сырой data-key OMEMO-хранилища аккаунта bareJid.
-//
-// БАГ (исправлено): на устройствах, где OMEMO уже был инициализирован ДО
-// объединения хранилища (ключ лежал отдельно под 'xmppOmemoStorageKey:'+
-// bareJid - см. историю этого файла), простое "не нашли в новом блоке -
-// сгенерировали новый" привело бы к рассинхрону: в IndexedDB (identity/
-// prekey/session) уже лежат записи, зашифрованные СТАРЫМ ключом, а читать их
-// стали бы новым - crypto.subtle.decrypt падает с DOMException OperationError
-// (провал проверки тега GCM), в bootstrap.js это всплывало как toast "OMEMO
-// недоступен: ошибка инициализации ключей - OperationError". Поэтому сначала
-// пробуем мигрировать ключ со старого места, и только если там пусто -
-// генерируем новый.
-export async function ensureOmemoRawKey(bareJid, passphraseProvider){
+// Неймспейсы data-key'ев в vault-блоке: поле блока, ключ memCache (у истории префикс 'hist:'
+// против коллизий с OMEMO-ключом того же bareJid).
+const memKeyOf = (field, bareJid) => field + ':' + bareJid;
+
+// Возвращает сырой data-key аккаунта bareJid из неймспейса vault-блока (omemoKeys/historyKeys),
+// создавая при необходимости, но без записи на диск (пишет flushVaultBlob).
+// migrate(bareJid, passphraseProvider) - необязательный источник ключа со старой схемы, пробуется до генерации нового.
+async function ensureRawKey(field, bareJid, passphraseProvider){
   const blob = await getVaultBlob(passphraseProvider);
-  let rawKeyB64 = blob.omemoKeys[bareJid];
-  if(!rawKeyB64){
-    rawKeyB64 = await migrateLegacyOmemoRawKey(bareJid, passphraseProvider);
-    if(!rawKeyB64){
-      rawKeyB64 = b64enc(crypto.getRandomValues(new Uint8Array(32)).buffer);
-      debugLog('[omemo-vault] сгенерирован новый data-key для OMEMO-хранилища ' + bareJid);
-    }
-    blob.omemoKeys[bareJid] = rawKeyB64;
+  if(!blob[field][bareJid]){
+    blob[field][bareJid] = newRawKeyB64();
     markVaultBlobDirty();
   }
-  return rawKeyB64;
+  return blob[field][bareJid];
 }
 
-function legacyOmemoKeyLsKey(bareJid){ return 'xmppOmemoStorageKey:' + bareJid; }
-
-async function migrateLegacyOmemoRawKey(bareJid, passphraseProvider){
-  const legacyLsKey = legacyOmemoKeyLsKey(bareJid);
-  const legacyBlob = lsGet(legacyLsKey, null);
-  if(!legacyBlob || !legacyBlob.data || !legacyBlob.iv) return null;
-  try{
-    await vault.ensureSetup(null, passphraseProvider);
-    const vaultKey = await vault.unlock(passphraseProvider);
-    const decrypted = await vault.decrypt(vaultKey, legacyBlob);
-    lsRemove(legacyLsKey);
-    debugLog('[omemo-vault] мигрирован OMEMO data-key со старой схемы хранения для ' + bareJid);
-    return decrypted.rawKeyB64;
-  }catch(e){
-    debugLog('[omemo-vault] не удалось мигрировать старый OMEMO data-key для ' + bareJid + ': ' + (e && e.message ? e.message : e));
-    return null;
-  }
-}
-
-// passphraseProvider - тот же (isSetup) => Promise<string>, что принимают
-// vault.unlock/ensureSetup (см. вызовы в net/connection/connect.js). К этому
-// моменту (вызывается из crypto/store.js:createSignalStore, уже после
-// net/connection/connect.js) блок обычно уже загружен и нужный ключ уже в
-// нём - тогда это чистый locally-cached путь без единого похода к vault.
-export async function getOmemoStorageKey(bareJid, passphraseProvider){
-  if(memCache.has(bareJid)) return memCache.get(bareJid);
-  const rawKeyB64 = await ensureOmemoRawKey(bareJid, passphraseProvider);
-  // Если ключ только что сгенерирован и по какой-то причине это не часть
-  // обычного connect.js-флоу (где flushVaultBlob вызывается явно один раз
-  // после всех правок) - подстрахуемся и сохраним сами, чтобы новый ключ не
-  // потерялся при перезагрузке страницы.
-  await flushVaultBlob(passphraseProvider);
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw', b64dec(rawKeyB64), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-  memCache.set(bareJid, cryptoKey);
-  return cryptoKey;
-}
-
-// Тот же принцип, что и ensureOmemoRawKey/getOmemoStorageKey выше, но для
-// истории переписки и медиа-кэша (net/history/*, net/media-cache-shared.js) -
-// отдельный data-key в том же общем vault-блоке (свой неймспейс
-// blob.historyKeys, миграции со старой схемы для него нет, т.к. раньше
-// история вообще не шифровалась). Отдельный memCache-неймспейс ('hist:' +
-// bareJid), чтобы не столкнуться по ключу Map с OMEMO data-key'ем того же bareJid.
-export async function getHistoryStorageKey(bareJid, passphraseProvider){
-  const memKey = 'hist:' + bareJid;
+// То же + импорт в non-extractable CryptoKey и кэш в memCache.
+async function getDataKey(field, bareJid, passphraseProvider){
+  const memKey = memKeyOf(field, bareJid);
   if(memCache.has(memKey)) return memCache.get(memKey);
-  const blob = await getVaultBlob(passphraseProvider);
-  let rawKeyB64 = blob.historyKeys[bareJid];
-  if(!rawKeyB64){
-    rawKeyB64 = b64enc(crypto.getRandomValues(new Uint8Array(32)).buffer);
-    blob.historyKeys[bareJid] = rawKeyB64;
-    markVaultBlobDirty();
-    debugLog('[omemo-vault] сгенерирован новый data-key для истории переписки ' + bareJid);
-  }
+  const rawKeyB64 = await ensureRawKey(field, bareJid, passphraseProvider);
   await flushVaultBlob(passphraseProvider);
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw', b64dec(rawKeyB64), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+  const cryptoKey = await importAesKey(rawKeyB64);
   memCache.set(memKey, cryptoKey);
   return cryptoKey;
 }
 
-// Используется при logout/deleteAllForAccount (см. net/history.js) - симметрично forgetOmemoStorageKey.
-export function forgetHistoryStorageKey(bareJid){
-  memCache.delete('hist:' + bareJid);
-  if(state.vaultBlob && state.vaultBlob.historyKeys){
-    delete state.vaultBlob.historyKeys[bareJid];
-  }
-}
+// passphraseProvider - тот же (isSetup) => Promise<string>, что у vault.unlock/ensureSetup (net/connection/connect.js).
+// Вызывается из store.js:createSignalStore после connect.js: блок обычно загружен, ключ в нём - обращения к vault нет.
+//
+// Только сырой ключ, без CryptoKey и записи на диск - для connect.js, который сам один раз вызывает flushVaultBlob.
+export const ensureOmemoRawKey = (bareJid, p) => ensureRawKey('omemoKeys', bareJid, p);
+export const getOmemoStorageKey = (bareJid, p) => getDataKey('omemoKeys', bareJid, p);
+export const getHistoryStorageKey = (bareJid, p) => getDataKey('historyKeys', bareJid, p);
 
-export async function encryptOmemoValue(key, val){
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const plaintext = new TextEncoder().encode(JSON.stringify(val));
-  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
-  return { v: 1, iv: b64enc(iv), data: b64enc(ciphertext) };
-}
-
-export async function decryptOmemoValue(key, blob){
-  const iv = new Uint8Array(b64dec(blob.iv));
-  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, b64dec(blob.data));
-  return JSON.parse(new TextDecoder().decode(plaintext));
-}
-
-// Удаляет data-key конкретного аккаунта из памяти и из общего vault-блока -
-// используется при полном удалении OMEMO-базы (см. store.js:deleteSignalStore).
-// Только в памяти, без записи на диск: единственный вызывающий (logout в
-// ui/modals.js) сам уже удаляет весь LS_KEY целиком и делает location.reload()
-// сразу следом - лишний encrypt-вызов тут означал бы ещё один ненужный
-// BiometricPrompt прямо при выходе, только чтобы тут же быть стёртым.
-export function forgetOmemoStorageKey(bareJid){
-  memCache.delete(bareJid);
-  if(state.vaultBlob && state.vaultBlob.omemoKeys){
-    delete state.vaultBlob.omemoKeys[bareJid];
-  }
-}
+export { encrypt as encryptOmemoValue, decrypt as decryptOmemoValue } from './vault/crypto-ops.js';

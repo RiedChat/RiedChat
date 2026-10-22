@@ -1,78 +1,67 @@
 // ===================== net/messaging/outgoing/compose.js =====================
-// Логика, привязанная к полю ввода: забирает текст, решает - обычная отправка
-// или сохранение правки (XEP-0308) - и собирает тело сообщения-ответа с цитатой.
-import { $ } from '../../../core/dom-utils.js';
+// Логика поля ввода: забирает текст, выбирает обычную отправку или правку (XEP-0308),
+// собирает тело ответа с цитатой.
+import { $, fireInput } from '../../../core/dom-utils.js';
 import { state } from '../../../core/state.js';
-import { renderReplyBar } from '../../../ui/chat-head.js';
 import { QUOTE_MARKER, QUOTE_ID_DELIM } from '../../../core/text-patterns.js';
-import { sendMessage } from './send.js';
+import { renderReplyBar } from '../../../ui/chat-head.js';
+
 import { editMessage } from './edit.js';
-import { notifyEncryptionFallback } from './fallback-notify.js';
+import { sendMessage } from './send.js';
 
-const S = state;
-
-// Собирает тело сообщения-ответа: пара строк "> ..." (автор + цитата), пустая
-// строка-разделитель, затем сам текст. ui/chat-view/render-messages.js:renderMessages() при
-// рендере ищет этот же формат и рисует цитату отдельным блоком с полосой слева.
-// QUOTE_MARKER в начале - см. core/text-patterns.js: без него текст, вручную
-// набранный пользователем в виде "> ...", цитатой не считается.
-// replyTo.id (если есть - см. features/message-swipe/quote.js:startReply) -
-// id процитированного сообщения, встраивается невидимо между QUOTE_ID_DELIM,
-// чтобы клик по цитате (features/quote-jump.js) находил именно его, а не
-// произвольное текстуально совпадающее сообщение (см. text-patterns.js).
+// Тело ответа: строки "> ..." (автор + цитата), пустая строка, затем текст. ui/chat-view/render-messages.js
+// рисует цитату блоком с полосой слева. QUOTE_MARKER в начале (core/text-patterns.js) - иначе вручную
+// набранное "> ..." цитатой не считается.
+// replyTo.id (features/message-swipe/quote.js:startReply) невидимо встраивается между QUOTE_ID_DELIM -
+// клик по цитате (features/quote-jump.js) находит именно это сообщение, а не текстовое совпадение.
 export function buildQuotedBody(replyTo, text){
-  // wireAuthor (если задан - см. features/message-swipe/quote.js:startReply) -
-  // именно то, что должно уйти в ТЕКСТ сообщения собеседнику; author - то, что
-  // показывается ЛОКАЛЬНО в плашке над полем ввода (см. ui/chat-head.js:
-  // renderReplyBar) и может быть локальным местоимением ("Вы"), которое для
-  // собеседника не имеет смысла (он не "вы", а получатель нашего сообщения).
-  const author = (replyTo.wireAuthor || replyTo.author || '').replace(/\n/g, ' ');
-  const snippet = (replyTo.text || '').replace(/\n/g, ' ');
-  const idPart = replyTo.id ? (QUOTE_ID_DELIM + String(replyTo.id).replace(new RegExp(QUOTE_ID_DELIM, 'g'), '') + QUOTE_ID_DELIM) : '';
+  // wireAuthor (features/message-swipe/quote.js:startReply) - то, что уходит в ТЕКСТ собеседнику;
+  // author - локальная подпись в плашке над полем ввода (ui/chat-head.js:renderReplyBar),
+  // может быть "Вы", что собеседнику не подходит.
+  const author = (replyTo.wireAuthor || replyTo.author || '').replaceAll('\n', ' ');
+  const snippet = (replyTo.text || '').replaceAll('\n', ' ');
+  const idPart = replyTo.id ? (QUOTE_ID_DELIM + String(replyTo.id).replaceAll(QUOTE_ID_DELIM, '') + QUOTE_ID_DELIM) : '';
   return QUOTE_MARKER + idPart + '> ' + author + ':\n> ' + snippet + '\n\n' + text;
 }
 
 export async function sendCurrentMessage(){
   const input = $('msg-input');
   const body = input.value.trim();
-  if(!body || !S.activeChat) return;
+  if(!body || !state.activeChat) return;
 
-  // Режим редактирования (features/message-edit.js) - отправляем не новое
-  // сообщение, а исправление уже отправленного (XEP-0308), и не трогаем
-  // S.replyTo/buildQuotedBody, которые относятся только к обычной отправке.
-  if(S.editing){
-    const targetId = S.editing.id;
-    // В поле ввода при редактировании лежит текст БЕЗ блока цитаты (см.
-    // features/message-edit.js:startEdit) - возвращаем цитату на место перед
-    // отправкой, иначе правка стёрла бы её из сообщения.
-    const editedBody = (S.editing.quotePrefix || '') + body;
-    input.value = '';
-    input.style.height = 'auto';
-    const status = await editMessage(S.activeChat, targetId, editedBody);
+  // Очищаем поле один раз ДО await: пока идёт шифрование, пользователь может набрать новый текст.
+  input.value = '';
+  input.style.height = 'auto';
+
+  // Режим редактирования (features/message-edit.js) - исправление (XEP-0308), state.replyTo/buildQuotedBody не трогаем.
+  if(state.editing){
+    const targetId = state.editing.id;
+    // В поле при редактировании текст БЕЗ цитаты (features/message-edit.js:startEdit) - возвращаем её,
+    // иначе правка сотрёт цитату.
+    const editedBody = (state.editing.quotePrefix || '') + body;
+    const status = await editMessage(state.activeChat, targetId, editedBody);
     if(!status.sent){
-      // Пользователь отказался отправлять незашифрованным (см. editMessage) -
-      // ничего не ушло на сервер, возвращаем текст в поле ввода, чтобы не потерять правку.
+      // Не удалось зашифровать (editMessage): на сервер ничего не ушло - возвращаем текст в поле.
       input.value = body;
-      input.dispatchEvent(new Event('input', {bubbles:true}));
+      fireInput(input);
       return;
     }
-    S.editing = null;
+    state.editing = null;
     renderReplyBar();
     return;
   }
 
-  input.value = '';
-  input.style.height = 'auto';
-  const finalBody = S.replyTo ? buildQuotedBody(S.replyTo, body) : body;
-  const status = await sendMessage(S.activeChat, finalBody);
+  const finalBody = state.replyTo ? buildQuotedBody(state.replyTo, body) : body;
+  const status = await sendMessage(state.activeChat, finalBody);
   if(!status.sent){
-    // Пользователь отказался отправлять незашифрованным (см. sendMessage) - ничего не
-    // ушло на сервер, поле ввода и цитата остаются как были, чтобы текст не потерялся.
+    // Не удалось зашифровать (sendMessage): ничего не ушло, цитата остаётся, текст
+    // возвращаем в поле (если за время модалки там нет нового).
+    if(!input.value){
+      input.value = body;
+      fireInput(input);
+    }
     return;
   }
-  input.value = '';
-  input.style.height = 'auto';
-  S.replyTo = null;
+  state.replyTo = null;
   renderReplyBar();
-  notifyEncryptionFallback(status.fallbackReason);
 }

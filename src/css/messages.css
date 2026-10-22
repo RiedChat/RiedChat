@@ -1,161 +1,111 @@
 /* ---------- MESSAGES LIST / TEXT BUBBLES ---------- */
-/* background-image выставляется в JS (features/profile.js:applyWallpaper) из
-   сохранённых в localStorage "обоев чата" - по умолчанию (без обоев) остаётся
-   обычный сплошной фон body/#chat-area. */
+/* background-image ставится из JS (profile.js:applyWallpaper); без обоев - сплошной фон. */
 #messages{
   flex:1; overflow-y:auto; padding:24px 28px; display:flex; flex-direction:column; gap:4px;
-  /* Свой шрифт сообщений (см. features/font-settings.js) - намеренно только
-     здесь, а не на body/html, поэтому меню, сайдбар и модалки его не видят. */
+  /* Шрифт сообщений (font-settings.js) - только здесь, не на body/html. */
   font-family:var(--chat-font-family, inherit);
-  /* background-size:cover ниже - только запасной вариант на случай, если JS ещё не
-     успел проставить фиксированный пиксельный размер (см. features/profile.js:
-     applyWallpaperSizing). Сам JS-размер не пересчитывается при открытии
-     клавиатуры специально - см. комментарий там. */
+  /* background-size:cover - запасной вариант до JS-размера (profile.js:applyWallpaperSizing); при клавиатуре не пересчитывается. */
   background-size:cover; background-position:center; background-repeat:no-repeat;
-  /* ВАЖНО: не "local" - тот привязывает фон к прокручиваемому СОДЕРЖИМОМУ
-     элемента, и размер пересчитывался бы под полную высоту истории чата
-     (которая растёт с каждым новым сообщением), поэтому обои визуально
-     "растягивались"/увеличивались по мере роста переписки. Со "scroll"
-     (по умолчанию) фон зафиксирован относительно рамки самого #messages -
-     остаётся статичной картинкой на весь видимый блок, а сообщения просто
-     скроллятся поверх неё, как и задумано. */
+  /* НЕ "local": фон растягивался бы с ростом истории. "scroll" фиксирует обои по рамке #messages. */
   background-attachment:scroll;
 }
 .msg-row{
   display:flex; margin-bottom:6px; position:relative;
-  touch-action:pan-y; /* свайп теперь ловится по всей ширине строки, не только по пузырю */
+  touch-action:pan-y; /* свайп ловится по всей ширине строки */
 }
 .msg-row.out{ justify-content:flex-end; }
 .msg-row.in{ justify-content:flex-start; }
 .bubble{
   max-width:62%; padding:10px 14px; font-size:var(--chat-font-size, 0.9062rem); line-height:1.45;
   position:relative; word-wrap:break-word; white-space:pre-wrap;
-  border-radius:var(--r-lg);
+  border:0.75px solid var(--ink); border-radius:var(--r-lg);
   transition:transform .2s ease;
-  touch-action:pan-y; /* оставляем вертикальный скролл списку, горизонталь ловит свайп-обработчик */
+  touch-action:pan-y; /* вертикальный скролл остаётся, горизонталь - у свайп-обработчика */
 }
 
-/* ---------- свайп по сообщению: подсказка-иконка (features/message-swipe.js) ----------
-   Свайп справа налево -> цитировать (иконка проявляется у правого края пузыря).
-   Свайп слева направо -> копировать текст / скачать медиа (иконка у левого края). */
-.swipe-hint{
+/* ---------- свайп: подсказка-иконка (swipe-gesture.js, message-swipe/wire.js) ---------- */
+/* Справа налево - цитировать (иконка справа, ::after); слева направо - копировать/скачать (иконка слева, ::before). */
+/* swipe-gesture.js ставит data-dir, data-left-glyph/right-glyph и переменные --swipe-p (0..1), --hint-reply, --hint-action. */
+.msg-row[data-dir]::before,
+.msg-row[data-dir]::after{
   position:absolute; top:50%; width:32px; height:32px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
   background:var(--ink); color:var(--paper); font-size:0.9375rem;
   opacity:0; transform:translateY(-50%) scale(.6); pointer-events:none; z-index:2;
 }
+.msg-row[data-dir]::before{ content:attr(data-right-glyph); left:var(--hint-action); }
+.msg-row[data-dir]::after{ content:attr(data-left-glyph); left:var(--hint-reply); }
+.msg-row[data-dir="left"]::after,
+.msg-row[data-dir="right"]::before{
+  opacity:var(--swipe-p); transform:translateY(-50%) scale(calc(.6 + .4 * var(--swipe-p)));
+}
 
-/* ---------- блок цитаты в теле ответа (свайп-цитирование) ---------- */
+/* ---------- блок цитаты в ответе ---------- */
 .bubble .quote-block{
   display:flex; align-items:center; gap:8px;
-  border-left:3px solid var(--warn); padding:4px 0 4px 10px; margin-bottom:6px;
-  font-size:calc(var(--chat-font-size, 0.9062rem) * 0.8966); line-height:1.35; opacity:.7; white-space:normal;
-  cursor:pointer; /* клик -> переход к процитированному сообщению, см. features/quote-jump.js */
+  border-left:3px solid currentColor; padding:4px 0 4px 10px; margin-bottom:6px;
+  font-size:calc(var(--chat-font-size, 0.9062rem) * 0.8966); line-height:1.35; white-space:normal;
+  cursor:pointer; /* клик -> к цитируемому сообщению (quote-jump.js) */
 }
 .bubble .quote-block .quote-block-text{
-  min-width:0; /* даёт тексту переноситься/обрезаться, а не распирать флекс-строку по миниатюре */
+  min-width:0; /* перенос/обрезка текста вместо распирания флекс-строки */
 }
 .bubble .quote-block .quote-author{
-  display:block; font-weight:700; color:var(--warn); font-size:calc(var(--chat-font-size, 0.9062rem) * 0.7931); margin-bottom:1px;
+  display:block; font-weight:700; font-size:calc(var(--chat-font-size, 0.9062rem) * 0.7931); margin-bottom:1px;
 }
-/* Миниатюра фото/видео/кружка/стикера ВНУТРИ самой цитаты (см.
-   ui/chat-view/message-body-html.js:formatMessageBody и
-   ui/chat-view/media-loader.js:loadQuoteThumb) - маленький квадрат слева от
-   текста цитаты, как превью цитируемого сообщения в Telegram. */
+/* Миниатюра медиа внутри цитаты (message-body-html.js:formatMessageBody, quote-thumb.js:loadQuoteThumb): квадрат слева. */
 .bubble .quote-block .quote-thumb{
   position:relative; flex:none; width:36px; height:36px; border-radius:6px; overflow:hidden;
-  background:rgba(128,128,128,.25);
+  border:1px solid currentColor;
 }
-.bubble .quote-block .quote-thumb.quote-thumb-round{ border-radius:50%; } /* кружок (features/video-note.js) */
-/* position:absolute + inset:0 внутри position:relative родителя - та же
-   техника, что и у .video-ratio-box/.video-note-box (media-messages.css,
-   ниже в этом файле): просто "width:100%; height:100%" на <video> без
-   абсолютного позиционирования на части мобильных WebView недостаточно
-   надёжно прижимает replaced-элемент к границам маленького 36×36-бокса -
-   видео (в отличие от <img>) может на мгновение получить собственный
-   intrinsic-размер, из-за чего превью "вылезает" за пределы квадрата
-   цитаты. object-fit:cover ниже всё равно отвечает за обрезку кадра, но
-   именно inset:0 гарантирует сам факт "не больше родителя" независимо от
-   рендерера. Для <img> это не требовалось (img так не ведёт себя), но одна
-   и та же техника для обоих проще, чем разное поведение для двух тегов.*/
+.bubble .quote-block .quote-thumb.quote-thumb-round{ border-radius:50%; } /* кружок (video-note.js) */
+/* position:absolute + inset:0 (как .video-ratio-box/.video-note-box): width/height:100% на <video> не держит его в 36×36 на части WebView; object-fit:cover обрезает кадр. */
 .bubble .quote-block .quote-thumb img,
 .bubble .quote-block .quote-thumb video{
   display:block; position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
 }
-/* Подсветка сообщения, к которому перешли по клику на цитату (features/quote-jump.js).
-   Фон пузыря на мгновение вспыхивает акцентным цветом и плавно возвращается к своему
-   обычному - раздельно для исходящих/входящих, у них разный "родной" фон. */
-/* лёгкий "хвостик" пузыря, как в Telegram - один угол чуть менее скруглён */
-.msg-row.out .bubble{ background:var(--ink); color:var(--paper); border:0.75px solid var(--ink); border-bottom-right-radius:6px; }
-.msg-row.in .bubble{ background:var(--paper); color:var(--ink); border:0.75px solid var(--ink); border-bottom-left-radius:6px; }
+/* Подсветка сообщения после перехода по цитате (quote-jump.js): фон вспыхивает акцентом и возвращается; отдельно для out/in. */
+/* "хвостик" пузыря: один угол менее скруглён */
+.msg-row.out .bubble{ background:var(--ink); color:var(--paper); border-bottom-right-radius:6px; }
+.msg-row.in .bubble{ background:var(--paper); color:var(--ink); border-bottom-left-radius:6px; }
 .call-log-icon{ width:0.95em; height:0.95em; vertical-align:-0.15em; }
 .bubble-time{
   display:flex; align-items:center; gap:5px; font-size:calc(var(--chat-font-size, 0.9062rem) * 0.6897); margin-top:5px; font-family:'IBM Plex Mono',monospace;
-  opacity:.55; text-align:right; justify-content:flex-end;
+  text-align:right; justify-content:flex-end;
 }
 .bubble-time .lock{ font-size:calc(var(--chat-font-size, 0.9062rem) * 0.6897); display:inline-flex; vertical-align:-1px; }
 .bubble-time .lock svg.icon-svg{ width:0.8125rem; height:0.8125rem; }
-/* Пометка "изменено" у отредактированных сообщений (XEP-0308) - как
-   маленький серый "edited" в Telegram, а не отдельная строка. */
+/* Пометка "изменено" (XEP-0308) - мелкий серый текст. */
 .bubble-time .edited-tag{ font-style:italic; }
-/* Галочки "отправлено/прочитано" - только у наших исходящих сообщений.
-   Одна - ушло с устройства, две - собеседник подтвердил показ (XEP-0333).
-   Цвет "прочитано" берём из --ok (тот же зелёный, что у online-статуса/доверенных
-   ключей), чтобы не заводить отдельный акцентный цвет только под это. */
-.bubble-time .ticks{ display:inline-flex; align-items:center; padding-right:2px; opacity:.75; }
-.bubble-time .ticks.read{ color:var(--paper); opacity:1; }
+/* Галочки только у исходящих: одна - отправлено, две - прочитано (XEP-0333). */
+.bubble-time .ticks{ display:inline-flex; align-items:center; padding-right:2px; }
+.bubble-time .ticks.read{ background:var(--paper); color:var(--ink); border-radius:var(--r-round); padding:0 4px; }
 .bubble-time .ticks svg.icon-svg{ width:0.8125rem; height:0.8125rem; flex-shrink:0; }
-/* "Прочитано" - две галочки внахлёст (как в Telegram): вторая сдвинута
-   влево на половину своей ширины поверх первой, отдельной "двойной" иконки
-   в наборе нет. Для одиночной "отправлено" второй svg просто не рисуется
-   (см. bubble-renderers.js:ticksHtml). */
+/* "Прочитано": две галочки внахлёст, вторая сдвинута влево на половину ширины (bubble-renderers.js:ticksHtml). */
 .bubble-time .ticks.read svg.icon-svg:last-child{ margin-left:-0.5625rem; }
-/* max-height ограничивает высокие портретные скриншоты, как в Telegram:
-   картинка/видео сжимаются по большей стороне, а не растягиваются во всю высоту чата.
-   Скрины намеренно чуть компактнее (~0.8x), видео - чуть крупнее (~1.3x). */
+/* max-height ограничивает высокие скриншоты; сжатие по большей стороне. Скрины ~0.8x, видео ~1.3x. */
 .bubble img{
   display:block; width:auto; height:auto;
   max-width:min(224px, 100%); max-height:272px; min-width:96px;
   border-radius:var(--r-sm); margin-top:6px; object-fit:cover;
 }
-/* Видео - фиксированная рамка ровно 16:9 через классический padding-top hack:
-   не полагаемся на CSS aspect-ratio (в части WebView он не поддерживается или
-   работает нестабильно в паре с object-fit). Рамка сама держит пропорцию,
-   видео внутри - position:absolute + object-fit:cover, полностью её заполняет
-   без чёрных/белых полос независимо от реальных пропорций исходника. */
+/* Видео: рамка 16:9 через padding-top hack (aspect-ratio нестабилен в части WebView); видео - absolute + object-fit:cover. */
 .bubble .video-ratio-box{
   position:relative; display:block; width:min(364px, 100%); min-width:156px;
   margin-top:6px; border-radius:var(--r-sm); overflow:hidden;
   padding-top:56.25%; /* 9/16 */
-  background:var(--ink-05);
+  background:var(--paper); border:1px solid var(--ink);
 }
 .bubble .video-ratio-box video{
   position:absolute; inset:0; width:100%; height:100%;
   display:block; object-fit:cover; object-position:center; border-radius:0;
 }
-/* Кружок (features/video-note.js) ВНУТРИ обычного текстового пузыря - т.е.
-   отправленный/полученный ВМЕСТЕ с цитатой (см. net/upload.js:_composeBody,
-   ui/chat-view/message-body-html.js). В "чистом" медиа-сообщении за круглую
-   форму отвечает .bubble.media-only .media-frame .video-note-box
-   (css/media-messages.css) - тот селектор здесь не подходит, бабл не
-   media-only. Тот же диаметр 200px, что и там, но без специфичных для
-   media-only оверлеев (обрезка по кругу самого пузыря тут не нужна -
-   пузырь остаётся обычным прямоугольным текстовым).
-   overflow не hidden: сам круг видео и так обрезается собственным
-   border-radius:50% на <video> ниже (для replaced-элементов радиус
-   клипует содержимое и без overflow:hidden на родителе) - а вот кнопка
-   "на весь экран" должна торчать НАД кругом, на его углу, и hidden тут
-   как раз срезал бы её подчистую (тот же случай, что и в media-only
-   ветке в media-messages.css). */
+/* Кружок (video-note.js) в текстовом пузыре, вместе с цитатой (upload.js:_composeBody, message-body-html.js). 200px как в media-only. overflow не hidden: круг клипуется border-radius:50% на <video>, а кнопка "на весь экран" должна торчать над углом. */
 .bubble .video-note-box{
   position:relative; display:block; width:200px; height:200px; max-width:100%;
-  margin-top:6px; border-radius:50%; background:var(--ink-05);
+  margin-top:6px; border-radius:50%; background:var(--paper); border:1px solid var(--ink);
 }
-/* Та же диагональная посадка кнопки, что и у media-only-кружка
-   (см. media-messages.css:.bubble.media-only .media-frame .video-note-box
-   .media-expand-btn) - иначе сработало бы базовое top:8px/right:8px из
-   modals.css, а угол квадратного бокса лежит за пределами вписанной
-   окружности, и кнопка выглядела бы прилепленной внутрь круга сбоку. */
+/* Диагональная посадка кнопки как у media-only-кружка (media-messages.css); иначе сработает top/right:8px из modals.css и кнопка окажется внутри круга. */
 .bubble .video-note-box .media-expand-btn{
   top:0; right:0; transform:translate(35%,-35%);
 }
@@ -164,36 +114,29 @@
   display:block; width:100%; height:100%; object-fit:cover; object-position:center; border-radius:50%;
 }
 .bubble .media-embed{ margin-top:6px; }
-.bubble .media-loading{ opacity:0.6; font-size:calc(var(--chat-font-size, 0.9062rem) * 0.8966); font-style:italic; }
+.bubble .media-loading{ font-size:calc(var(--chat-font-size, 0.9062rem) * 0.8966); font-style:italic; }
 .bubble a{ color:inherit; text-decoration:underline; }
 
 .bubble.system{
   align-self:center; max-width:80%; text-align:center; font-family:'IBM Plex Mono',monospace;
-  font-size:calc(var(--chat-font-size, 0.9062rem) * 0.7586); color:var(--ink-40); background:none; border:1px dashed var(--ink-20); border-radius:var(--r-round);
+  font-size:calc(var(--chat-font-size, 0.9062rem) * 0.7586); background:none; border:1px dashed var(--ink); border-radius:var(--r-round);
 }
 .day-divider{
   align-self:center; font-family:'IBM Plex Mono',monospace; font-size:calc(var(--chat-font-size, 0.9062rem) * 0.7241); text-transform:uppercase;
-  letter-spacing:.1em; color:var(--ink-40); margin:18px 0 10px; padding:5px 14px; border:1px solid var(--ink-10);
+  letter-spacing:.1em; margin:18px 0 10px; padding:5px 14px; border:1px solid var(--ink);
   border-radius:var(--r-round);
 }
 
-/* Плашка "Непрочитанные сообщения" - ставится перед первым непрочитанным входящим
-   сообщением (см. ui/chat-view/render-messages.js:renderMessages). Пропадает, когда пользователь
-   долистывает вниз мимо неё - IntersectionObserver в chat-view/unread-tracking.js прячет элемент
-   и помечает сообщения этого чата прочитанными. */
+/* Плашка "Непрочитанные сообщения" перед первым непрочитанным (render-messages.js:renderMessages); скрывается при прокрутке мимо - IntersectionObserver в unread-tracking.js помечает прочитанными. */
 .unread-divider{
   align-self:center; font-family:'IBM Plex Mono',monospace; font-size:calc(var(--chat-font-size, 0.9062rem) * 0.7241); text-transform:uppercase;
-  letter-spacing:.1em; color:var(--paper); background:var(--warn); margin:14px 0; padding:5px 14px;
+  letter-spacing:.1em; color:var(--paper); background:var(--ink); margin:14px 0; padding:5px 14px;
   border-radius:var(--r-round); font-weight:600;
 }
 
-/* Баннер даунгрейд-атаки: сообщение пришло без <encrypted>, хотя у собеседника
-   есть OMEMO-устройства и чат обычно шифруется (m.downgraded, см.
-   net/messaging/incoming.js). В отличие от .unread-divider стоит не по одной
-   штуке на весь список, а перед каждым конкретным даунгрейднутым сообщением -
-   поэтому уже, привязан к строке сообщения и не центрируется по всей ширине. */
+/* Баннер даунгрейда: сообщение без <encrypted> при наличии OMEMO-устройств (m.downgraded, incoming.js). В отличие от .unread-divider - перед каждым таким сообщением, узкий, привязан к строке. */
 .downgrade-banner{
   align-self:stretch; display:flex; align-items:center; gap:8px; font-size:calc(var(--chat-font-size, 0.9062rem) * 0.8);
-  color:var(--warn); background:color-mix(in srgb, var(--warn) 14%, transparent); border:1px solid var(--warn);
+  background:var(--paper); border:2px solid var(--ink);
   margin:10px 0 2px; padding:7px 12px; border-radius:var(--r-md, 10px); font-weight:600;
 }

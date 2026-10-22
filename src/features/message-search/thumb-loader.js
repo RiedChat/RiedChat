@@ -1,44 +1,35 @@
 // ============ features/message-search/thumb-loader.js ============
-// Лениво расшифровываем фото/видео, только когда они реально попали
-// в область видимости списка результатов.
+// Ленивая расшифровка фото/видео при попадании в область видимости.
 import { $ } from '../../core/dom-utils.js';
-import { html, raw, setHTML } from '../../core/safe-html.js';
-import { media } from '../../net/media.js';
-import { setPreviewPoster } from '../../ui/chat-view/video-poster.js';
-import { thumbFallbackHtml } from './format.js';
+import { html, setHTML } from '../../core/safe-html.js';
 import { t } from '../../i18n/t.js';
+import { media } from '../../net/media.js';
+import { applyVideoPoster } from '../../ui/chat-view/video-poster/index.js';
+
+import { thumbFallbackHtml } from './format.js';
 
 let thumbObserver = null;
 
-// Скачивает и расшифровывает (или, для обычной https-картинки, просто
-// подставляет исходный URL) и подменяет плейсхолдер на настоящее превью.
+// Скачивает и расшифровывает (для обычной https-картинки - берёт исходный URL) и заменяет плейсхолдер превью.
 async function loadThumb(host, info, senderJid){
   try{
     const blobUrl = info.encrypted
       ? (await media.decrypt(info.url, null, senderJid)).blobUrl
       : info.url;
     if(!blobUrl) throw new Error(t('search.decryptFailed'));
-    if(!document.body.contains(host)) return; // список уже перерисован/модалка закрыта
+    if(!document.body.contains(host)) return; // список перерисован/модалка закрыта
     if(info.kind === 'image'){
       setHTML(host, html`<img src="${blobUrl}" loading="lazy">`);
     } else {
-      setHTML(host, html`<video src="${blobUrl}" muted preload="metadata" playsinline></video>`);
+      setHTML(host, html`<video src="${blobUrl}#t=0.001" muted preload="metadata" playsinline></video>`);
       const videoEl = host.querySelector('video');
       if(videoEl){
-        // Как и в media-loader/encrypted-media.js: сперва пробуем кадр,
-        // встроенный отправителем прямо в ссылку (media.extractThumbDataUrl) -
-        // это надёжно всегда, включая кружки. Постфактумный setPreviewPoster
-        // (перемотка/захват уже скачанного файла) для кружков (webm без
-        // индекса ключевых кадров из MediaRecorder) на части браузеров не
-        // срабатывает вовсе, поэтому без этой проверки превью кружков в
-        // поиске часто оставалось пустым - используем его только как fallback.
-        const embeddedThumb = media.extractThumbDataUrl(info.url);
-        if(embeddedThumb) videoEl.poster = embeddedThumb;
-        else setPreviewPoster(videoEl, {skipSeek: info.category === 'videonote'});
+        // Как в media-loader/encrypted-media.js: кадр, встроенный отправителем в ссылку (extractThumbDataUrl); без него - кадр от #t=0.001.
+        applyVideoPoster(videoEl, info.url);
       }
     }
-  }catch(e){
-    if(document.body.contains(host)) setHTML(host, raw(thumbFallbackHtml(info)));
+  }catch{
+    if(document.body.contains(host)) setHTML(host, thumbFallbackHtml(info));
   }
 }
 

@@ -1,21 +1,14 @@
 // =================== net/messaging/incoming/call-signal.js ===================
-// Входящий call-сигнал: тип (offer/answer/candidate/decline/hangup/busy) уже
-// виден открытым текстом в <call-signal type="..." id="..."> (см.
-// core/constants.js:NS_CALL) - это и есть то, по чему early-handlers.js
-// матчит станзу ДО расшифровки. Сам SDP/ICE - только внутри <encrypted>,
-// расшифровывается тем же omemo.decryptStanza, что и обычные сообщения.
+// Входящий call-сигнал: тип (offer/answer/candidate/decline/hangup/busy) открыт в
+// <call-signal type="..." id="..."> (core/constants.js:NS_CALL) - по нему early-handlers.js матчит
+// станзу ДО расшифровки. SDP/ICE - только внутри <encrypted>, расшифровка тем же omemo.decryptStanza.
 import { state } from '../../../core/state.js';
 import { omemo } from '../../../crypto/omemo/state.js';
 
-// callManager - из чанка features/call/*, который грузится динамически (см.
-// app.js:wireEvents). Входящий сигнал может прийти ДО того, как пользователь
-// хоть раз нажал что-то, связанное со звонком, поэтому здесь тоже
-// динамический import(), а не расчёт на то, что чанк уже подгружен;
-// повторные import() одного и того же модуля отдают закешированный промис.
-const callManagerPromise = import('../../../features/call/call-manager.js')
-  .then(m => m.callManager);
-
-const S = state;
+// onSignal - из динамически загружаемого чанка features/call/* (app.js:wireEvents). Сигнал может прийти
+// до любого действия со звонком, поэтому динамический import() (повторные вызовы отдают кэшированный промис).
+const onSignalPromise = import('../../../features/call/signal-handlers.js')
+  .then(m => m.onSignal);
 
 export async function handleCallSignal(stanza, bare){
   const sigEl = stanza.querySelector('call-signal');
@@ -23,38 +16,31 @@ export async function handleCallSignal(stanza, bare){
   const callId = sigEl.getAttribute('id');
   if(!type || !callId) return;
 
-  // Полный JID отправителя нужен callManager'у для маршрутизации ответных
-  // сигналов обратно на КОНКРЕТНЫЙ ресурс собеседника (см.
-  // net/messaging/outgoing/call-signal.js и features/call/call-manager.js:
-  // targetJidsFor/_onAnswer) - bare JID сервер при отправке роутит только на
-  // один ("самый доступный") ресурс, а звонящий теперь шлёт offer сразу на
-  // все онлайн-ресурсы контакта.
+  // Полный JID нужен обработчику сигналов для ответных сигналов на КОНКРЕТНЫЙ ресурс (outgoing/call-signal.js,
+  // features/call/outgoing-call.js:targetJidsFor, features/call/signal-handlers.js:_onAnswer): по bare JID сервер роутит на один
+  // "самый доступный" ресурс, а offer уходит на все онлайн-ресурсы контакта.
   const fromJid = stanza.getAttribute('from');
   const fromResource = Strophe.getResourceFromJid(fromJid) || null;
 
-  if(bare === S.myBareJid){
-    // Сигнал от нашего же bare JID: сервер никогда не эхо-возвращает
-    // станзу её же отправителю, поэтому единственный легитимный случай -
-    // это сигнал от ДРУГОГО нашего резолюшена (пользователь звонит себе же,
-    // проверяя два устройства); такой обрабатываем как обычный входящий,
-    // callManager сам решит через 'busy', занят ли этот конкретный ресурс.
-    // Станзу без ресурса или с нашим же текущим ресурсом (испорченная
-    // маршрутизация / реальный собственный эхо-сигнал) отбрасываем.
-    if(!fromResource || fromResource === S.myResource) return;
+  if(bare === state.myBareJid){
+    // Сервер не эхо-возвращает станзу отправителю, поэтому сигнал от нашего bare JID - только от ДРУГОГО
+    // нашего ресурса (звонок самому себе); обрабатываем как обычный, signal-handlers решит через 'busy'.
+    // Без ресурса или с нашим текущим ресурсом (сбой маршрутизации/эхо) - отбрасываем.
+    if(!fromResource || fromResource === state.myResource) return;
   }
 
-  if(!stanza.querySelector('encrypted')) return; // сигнал без OMEMO-конверта - отбрасываем, plaintext-фоллбека для звонков нет
+  if(!stanza.querySelector('encrypted')) return;  // без OMEMO-конверта - отбрасываем (plaintext-фоллбека для звонков нет)
 
-  let payload = null;
+  let payload;
   try{
     const plain = await omemo.decryptStanza(stanza);
-    if(plain === null) return; // конверт адресован другому нашему устройству
+    if(plain === null) return;  // конверт для другого нашего устройства
     payload = plain ? JSON.parse(plain) : {};
   }catch(e){
     console.warn('handleCallSignal: не удалось расшифровать/распарсить сигнал', e);
     return;
   }
 
-  const callManager = await callManagerPromise;
-  callManager.onSignal(fromJid, bare, type, callId, payload);
+  const onSignal = await onSignalPromise;
+  onSignal(fromJid, bare, type, callId, payload);
 }

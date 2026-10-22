@@ -1,53 +1,30 @@
-// =============== net/presence/subscribe-queue.js ===============
-// Очередь подтверждения входящих presence-подписок пользователем.
-// Выделено из net/presence/incoming.js.
-//
-// Раньше onPresence молча слал 'subscribed' в ответ на любой 'subscribe' -
-// это раскрывает online/offline-статус, lastSeen, ник и аватар кому угодно
-// на домене без согласия пользователя (riedchat-security-plan.md, п.7).
-// Встречный 'subscribe' теперь НЕ отправляется отсюда автоматически - он
-// либо уже был отправлен явно через addContact() (net/roster.js), либо
-// подтянется через fetchRoster() при следующей синхронизации ростера.
-import { state } from '../../core/state.js';
 import { debugLog } from '../../core/debug-log.js';
-import { confirm } from '../../ui/modals.js';
+import { contactName } from '../../core/dom-utils.js';
+import { state } from '../../core/state.js';
 import { t } from '../../i18n/t.js';
+import { confirmChoice } from '../../ui/confirm-modal.js';
 
-const S = state;
-
-const pendingSubscribeRequests = new Set(); // JID, уже ждущие показа/находящиеся в модалке - не даём задвоиться
-const subscribeQueue = [];
-let subscribeModalActive = false;
+const pending = new Set();
+let chain = Promise.resolve();
 
 export function queueSubscriptionApproval(bare){
-  if(pendingSubscribeRequests.has(bare)) return; // повторный subscribe-стос от того же JID пока ждём ответа - игнорируем
-  pendingSubscribeRequests.add(bare);
-  subscribeQueue.push(bare);
-  processSubscribeQueue();
+  if(pending.has(bare)) return;
+  pending.add(bare);
+  chain = chain
+    .then(() => askSubscription(bare))
+    .catch(() => {})
+    .finally(() => pending.delete(bare));
 }
 
-async function processSubscribeQueue(){
-  if(subscribeModalActive) return;
-  const bare = subscribeQueue.shift();
-  if(!bare) return;
-  subscribeModalActive = true;
-  const contact = S.roster[bare];
-  const name = (contact && (contact.nick || contact.name)) || bare;
-  const allow = await confirm(
+async function askSubscription(bare){
+  const name = contactName(bare);
+  const allow = await confirmChoice(
     t('presence.subscribeTitle'),
     t('presence.subscribeDesc', {name, jid: bare}),
-    {okText: t('presence.allow'), cancelText: t('presence.decline'), okDanger: false}
+    t('presence.allow'),
+    t('presence.decline')
   );
-  if(S.connection && S.connection.connected){
-    if(allow){
-      S.connection.send($pres({to: bare, type: 'subscribed'}));
-      debugLog('presence: пользователь разрешил подписку для ' + bare);
-    } else {
-      S.connection.send($pres({to: bare, type: 'unsubscribed'}));
-      debugLog('presence: пользователь отклонил подписку для ' + bare);
-    }
-  }
-  pendingSubscribeRequests.delete(bare);
-  subscribeModalActive = false;
-  processSubscribeQueue(); // следующий запрос из очереди, если накопился
+  if(!state.connection?.connected) return;
+  state.connection.send($pres({to: bare, type: allow ? 'subscribed' : 'unsubscribed'}));
+  debugLog('presence: пользователь ' + (allow ? 'разрешил' : 'отклонил') + ' подписку для ' + bare);
 }

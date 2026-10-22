@@ -1,36 +1,23 @@
 // ===================== ui/chat-view/unread-tracking.js =====================
-// Отслеживание плашки "Непрочитанные сообщения" и пометка чата прочитанным.
-// Выделено из ui/chat-view.js: используется render-messages.js через
-// this._watchUnreadDivider/_stopUnreadTracking, но логически самостоятельно
-// (IntersectionObserver + запись в историю), поэтому живёт отдельным файлом.
-import { state } from '../../core/state.js';
-import { $ } from '../../core/dom-utils.js';
+// Плашка «Непрочитанные сообщения» и пометка чата прочитанным. Используется render-messages.js, но самостоятельна (IntersectionObserver + запись в историю).
+import { $, isUnread } from '../../core/dom-utils.js';
+import { messagesOf } from '../../core/state.js';
 import { history } from '../../net/history.js';
-import { sendDisplayedMarker } from '../../net/messaging/outgoing.js';
+import { sendDisplayedMarker } from '../../net/messaging/displayed-marker.js';
 import { patchRosterRow } from '../roster.js';
-import { t } from '../../i18n/t.js';
-
-const S = state;
 
 let unreadObserver = null;
 
-// Следит за плашкой "Непрочитанные сообщения": как только пользователь
-// долистывает вниз мимо неё (плашка полностью уходит выше видимой области
-// списка), считаем сообщения этого чата прочитанными и убираем плашку -
-// без полной перерисовки renderMessages(), чтобы не дёргать скролл.
-export function _watchUnreadDivider(dividerEl, chatJid){
+// Когда плашка полностью уходит выше видимой области, чат считается прочитанным и плашка убирается без полной перерисовки (не дёргаем скролл).
+export function watchUnreadDivider(dividerEl, chatJid){
   const messagesEl = $('messages');
   if(!messagesEl || !dividerEl) return;
   const observer = new IntersectionObserver((entries) => {
     for(const entry of entries){
-      // isIntersecting=false и boundingClientRect выше корня (top < 0 относительно
-      // viewport списка) означает, что плашка ушла ВВЕРХ за пределы видимой
-      // области - то есть пользователь пролистал вниз мимо неё. Если плашка ещё
-      // просто не долистана (лежит НИЖЕ видимой области), rect.top будет положительным
-      // относительно root - это не считается "пройдено".
+      // isIntersecting=false и rect.top < 0 (относительно списка) - плашка ушла вверх, то есть пролистана. Если она ниже видимой области (rect.top > 0) - ещё не пройдена.
       if(!entry.isIntersecting && entry.boundingClientRect.bottom < (entry.rootBounds ? entry.rootBounds.top : 0)){
-        _markChatRead(chatJid);
-        _stopUnreadTracking();
+        markChatRead(chatJid);
+        stopUnreadTracking();
         dividerEl.remove();
       }
     }
@@ -39,35 +26,22 @@ export function _watchUnreadDivider(dividerEl, chatJid){
   unreadObserver = observer;
 }
 
-export function _stopUnreadTracking(){
+export function stopUnreadTracking(){
   if(unreadObserver){
     unreadObserver.disconnect();
     unreadObserver = null;
   }
 }
 
-// Помечает все входящие сообщения чата прочитанными и сохраняет на диск +
-// обновляет счётчик непрочитанных в сайдбаре (roster.js читает m.read).
-// Также шлёт собеседнику <displayed> (XEP-0333) на последнее входящее
-// сообщение, которое просило подтверждения - это и есть двойная галочка
-// "прочитано" у НЕГО в интерфейсе для его исходящих к нам сообщений.
-export function _markChatRead(chatJid){
-  const list = S.messages[chatJid];
-  if(!list || !list.length) return;
-  let changed = false;
-  let lastMarkableId = null;
-  list.forEach(m => {
-    if(m && !m.out){
-      if(m.read === false){ m.read = true; changed = true; }
-      if(m.markable) lastMarkableId = m.id;
-    }
-  });
-  if(changed){
-    history.saveThread(chatJid, list).catch(e => history.reportWriteError(e, t('chatView.chatHistoryLabel')));
-    // Точечно перерисовываем только эту одну строку ростера - см.
-    // roster.js:patchRosterRow. Порядок ростера сортируется по имени, а не
-    // по времени/непрочитанным, так что замена строки на месте безопасна.
-    patchRosterRow(chatJid);
-  }
-  if(changed && lastMarkableId) sendDisplayedMarker(chatJid, lastMarkableId);
+// Помечает входящие прочитанными, сохраняет на диск, обновляет счётчик в сайдбаре (roster.js читает m.read). Шлёт <displayed> (XEP-0333) на последнее входящее с запросом подтверждения - это двойная галочка у собеседника.
+export function markChatRead(chatJid){
+  const list = messagesOf(chatJid);
+  const unread = list.filter(isUnread);
+  if(!unread.length) return;
+  unread.forEach(m => { m.read = true; });
+  history.saveThread(chatJid, list);
+  // Перерисовываем одну строку ростера (roster.js:patchRosterRow). Ростер сортируется по имени, поэтому замена на месте безопасна.
+  patchRosterRow(chatJid);
+  const lastMarkableId = list.findLast(m => m && !m.out && m.markable)?.id;
+  if(lastMarkableId) sendDisplayedMarker(chatJid, lastMarkableId);
 }

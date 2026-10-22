@@ -53,11 +53,6 @@ to traverse symmetric NAT.
 Requires `http_file_share` to be enabled (or a separate component of the
 same kind) - without it, uploading and sending files in chat doesn't work.
 
-## Message history (XEP-0313, MAM)
-
-Requires `mod_mam` to be enabled. Without it, the client can't load message
-history when logging in from a new device or after a reinstall.
-
 ## OMEMO device-list push notifications (XEP-0115 + PEP)
 
 For the client to learn about a contact's new/removed device without manual

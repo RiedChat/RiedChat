@@ -1,29 +1,19 @@
 // ===================== features/message-search.js =====================
-// Поиск по сообщениям текущего чата: лупа в шапке чата (рядом с ником)
-// открывает модалку, список совпадений обновляется по мере ввода, клик по
-// совпадению закрывает модалку и прокручивает список сообщений к нужному,
-// подсвечивая его на пару секунд.
+// Поиск по сообщениям текущего чата: лупа в шапке открывает модалку, список обновляется при вводе,
+// клик по совпадению закрывает модалку, прокручивает к сообщению и подсвечивает его.
 //
-// Кнопки-фильтры (Текст/Фото/Стикеры/Видео/Кружки/Аудио/Файлы) переключают режим списка:
-// "Текст" - обычный полнотекстовый поиск по обычным сообщениям (как раньше);
-// остальные - галерея вложений нужного типа по всему чату (без пустого
-// текстового запроса, свежие сверху), где вместо голой aesgcm-/https-ссылки
-// показывается настоящее расшифрованное превью (фото/видео) либо понятная
-// подпись (аудио/файл) - как в остальном интерфейсе (см.
-// ui/chat-view/message-body-html.js:classifySingleMedia и
-// ui/roster.js:mediaLabelFor, откуда взят тот же принцип классификации).
+// Фильтры (Текст/Фото/Стикеры/Видео/Кружки/Аудио/Файлы): "Текст" - полнотекстовый поиск по обычным сообщениям;
+// остальные - галерея вложений типа по всему чату (свежие сверху) с расшифрованным превью (фото/видео)
+// или подписью (аудио/файл), как в ui/chat-view/message-body-html.js:classifySingleMedia и ui/roster.js:mediaLabelFor.
 //
-// Логика разбита на подмодули в features/message-search/:
-//   classify.js       - определение типа тела сообщения (текст/вложение)
-//   format.js         - форматирование времени, сниппетов, подписей
-//   thumb-loader.js   - ленивая расшифровка превью через IntersectionObserver
-//   results-render.js - рендер списка результатов (текст и медиа-галерея)
-import { $, toast, wireModalDismiss } from '../core/dom-utils.js';
+// Подмодули message-search/: classify.js (тип тела), format.js (время, сниппеты, подписи),
+// thumb-loader.js (ленивая расшифровка превью через IntersectionObserver), results-render.js (рендер результатов).
+import { $, toast, highlightRow, wireModalDismiss, debounce } from '../core/dom-utils.js';
 import { state } from '../core/state.js';
-import { renderResults } from './message-search/results-render.js';
 import { t } from '../i18n/t.js';
+import { ensureMessageRow } from '../ui/chat-view/render-messages.js';
 
-const S = state;
+import { renderResults } from './message-search/results-render.js';
 
 let activeFilter = 'all'; // 'all' | 'image' | 'sticker' | 'video' | 'videonote' | 'audio' | 'file'
 
@@ -32,14 +22,12 @@ function renderCurrentResults(query){
 }
 
 function scrollToMessage(idx){
-  const row = document.querySelector('#messages .msg-row[data-idx="' + idx + '"]');
+  const row = ensureMessageRow(idx);
   if(!row){
     toast(t('search.notFoundInView'));
     return;
   }
-  row.scrollIntoView({block:'center', behavior:'smooth'});
-  row.classList.add('search-highlight');
-  setTimeout(() => row.classList.remove('search-highlight'), 1600);
+  highlightRow(row);
 }
 
 function setActiveFilter(filter){
@@ -51,13 +39,13 @@ function setActiveFilter(filter){
 }
 
 function openSearchModal(){
-  if(!S.activeChat){ toast(t('search.openChatFirst')); return; }
+  if(!state.activeChat){ toast(t('search.openChatFirst')); return; }
   const input = $('search-modal-input');
   input.value = '';
   setActiveFilter('all');
   renderCurrentResults('');
-  $('search-modal').classList.add('active');
-  setTimeout(() => input.focus(), 0); // после display:flex - иначе фокус на мобильных иногда не срабатывает
+  $('search-modal').showModal();
+  input.focus();
 }
 
 export function wireMessageSearch(){
@@ -67,27 +55,16 @@ export function wireMessageSearch(){
   const closeSearchModal = wireModalDismiss('search-modal', 'search-modal-close');
   btn.addEventListener('click', openSearchModal);
 
-  // Дебаунс инпута: без него каждое нажатие клавиши гоняло полный O(n)
-  // проход по S.messages[activeChat] (+ построение и вставку HTML списка
-  // результатов) - на длинной истории это заметный лаг при быстром наборе.
-  // 150ms - обычная точка отсчёта для search-as-you-type (Telegram Web
-  // ставит похожий порядок), быстрый набор схлопывается в один пересчёт,
-  // разница с "живым" откликом на глаз не ощущается.
-  let debounceTimer = null;
-  $('search-modal-input').addEventListener('input', function(){
-    const value = this.value;
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => renderCurrentResults(value), 150);
-  });
+  // Дебаунс 150мс: без него каждое нажатие делало полный O(n) проход по state.messages[activeChat] и перестройку списка.
+  const renderDebounced = debounce(renderCurrentResults, 150);
+  $('search-modal-input').addEventListener('input', (e) => renderDebounced(e.target.value));
 
   $('search-filters').addEventListener('click', (e) => {
     const fbtn = e.target.closest('.search-filter-btn');
     if(!fbtn) return;
     setActiveFilter(fbtn.dataset.filter);
-    // Смена фильтра - не набор текста, применяем сразу, без задержки, и
-    // отменяем висящий отложенный пересчёт от предыдущего инпута, чтобы он
-    // не перетёр результат уже после переключения фильтра.
-    clearTimeout(debounceTimer);
+    // Смена фильтра - применяем сразу и отменяем отложенный пересчёт, чтобы он не перетёр результат.
+    renderDebounced.cancel();
     renderCurrentResults($('search-modal-input').value);
   });
 

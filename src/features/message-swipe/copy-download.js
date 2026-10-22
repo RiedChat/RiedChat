@@ -25,19 +25,7 @@ export async function swipeAction(msg, bubble){
   try{
     await navigator.clipboard.writeText(text);
     toast(t('copyDownload.textCopied'));
-  }catch(e){
-    try{
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      ta.remove();
-      toast(t('copyDownload.textCopied'));
-    }catch(e2){
-      toast(t('copyDownload.copyFailed'));
-    }
+  }catch{
+    toast(t('copyDownload.copyFailed'));
   }
 }

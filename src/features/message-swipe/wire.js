@@ -1,56 +1,53 @@
+// ===================== features/message-swipe/wire.js =====================
+// Свайп по сообщению (как в Telegram):
+// - справа налево: цитировать (плашка "Ответ ..." над полем; текст цитаты идёт в начало сообщения - buildQuotedBody в net/messaging/outgoing.js, рендер в ui/chat-view/render-messages.js);
+// - слева направо: копировать текст, для медиа - скачать файл.
+// Механика жеста (Pointer Events, transform, hint-иконки) - ui/swipe-gesture.js.
+// Соседние модули: shared.js (подписи видов вложений), quote.js (startReply), copy-download.js (swipeAction).
 import { $ } from '../../core/dom-utils.js';
 import { state } from '../../core/state.js';
 import { renderReplyBar } from '../../ui/chat-head.js';
 import { wireSwipeGesture } from '../../ui/swipe-gesture.js';
 import { cancelEdit } from '../message-edit.js';
+import { msgByRow } from '../message-select/dom.js';
 import { loadSwipeReversed, loadBidiQuote } from '../swipe-settings.js';
-import { msgByRow } from './shared.js';
-import { startReply } from './quote.js';
-import { swipeAction } from './copy-download.js';
 
-const S = state;
+import { swipeAction } from './copy-download.js';
+import { startReply } from './quote.js';
 
 export function wireMessageSwipe(){
   const el = $('messages');
   if(!el) return;
 
-  // Направление свайпа настраивается в модалке профиля (см.
-  // features/swipe-settings.js) - по умолчанию, как в Telegram: справа
-  // налево -> цитировать, слева направо -> копировать/скачивать. Реверс
-  // меняет обе стороны местами (глиф-подсказку и колбэк) одновременно.
-  // loadSwipeReversed() читается заново на каждый жест/подсказку (а не
-  // один раз здесь, при навешивании) - так смена настройки в модалке
-  // применяется сразу, без перезагрузки страницы.
+  // Направление задаётся в модалке профиля (features/swipe-settings.js); по умолчанию как в Telegram: справа налево - цитата, слева направо - копировать/скачать.
+  // Реверс меняет стороны (глиф и колбэк). loadSwipeReversed() читается на каждый жест, поэтому настройка применяется без перезагрузки.
   const actionGlyph = (row) => {
     const bubble = row.querySelector('.bubble');
-    const kind = bubble && bubble.dataset.kind;
+    const kind = bubble?.dataset.kind;
     return (kind && kind !== 'text') ? '⬇' : '⧉';
   };
 
-  // "Двунаправленная цитата" (см. features/swipe-settings.js:loadBidiQuote) -
-  // приоритетнее реверса: если включена, обе подсказки и оба колбэка -
-  // startReply, копирование/скачивание свайпом недоступно вовсе.
+  // Двунаправленная цитата (features/swipe-settings.js:loadBidiQuote) приоритетнее реверса: оба свайпа - startReply, копирование/скачивание недоступно.
+  const replyOn = (side) => loadBidiQuote() || (side === 'left') !== loadSwipeReversed();
+  const glyph = (side) => (row) => replyOn(side) ? '↩' : actionGlyph(row);
+  const run = (side) => (item, bubble) => (replyOn(side) ? startReply : swipeAction)(item, bubble);
   wireSwipeGesture(el, '.msg-row', {
     getItem: msgByRow,
-    leftHintGlyph: (row, msg) => loadBidiQuote() ? '↩' : (loadSwipeReversed() ? actionGlyph(row) : '↩'),
-    rightHintGlyph: (row, msg) => loadBidiQuote() ? '↩' : (loadSwipeReversed() ? '↩' : actionGlyph(row)),
-    onSwipeLeft: (item, bubble) => loadBidiQuote() ? startReply(item, bubble) : (loadSwipeReversed() ? swipeAction(item, bubble) : startReply(item, bubble)),
-    onSwipeRight: (item, bubble) => loadBidiQuote() ? startReply(item, bubble) : (loadSwipeReversed() ? startReply(item, bubble) : swipeAction(item, bubble)),
+    leftHintGlyph: glyph('left'),
+    rightHintGlyph: glyph('right'),
+    onSwipeLeft: run('left'),
+    onSwipeRight: run('right'),
   });
 
   const replyBar = $('reply-bar');
   if(replyBar){
-    // Плашка - не <button>, а обычный div, фокус ни у чего не переносит,
-    // поэтому клавиатура на мобильных при тапе не закрывается - никакой
-    // отдельный preventDefault для этого больше не нужен. Плашка общая для
-    // цитаты и редактирования (см. ui/chat-head.js:renderReplyBar) - клик
-    // закрывает то состояние, которое сейчас активно.
+    // Плашка - div, фокус не переносит, клавиатура на мобильных не закрывается. Общая для цитаты и редактирования (ui/chat-head.js:renderReplyBar): клик закрывает активное состояние.
     replyBar.addEventListener('click', () => {
-      if(S.editing){
+      if(state.editing){
         cancelEdit();
         return;
       }
-      S.replyTo = null;
+      state.replyTo = null;
       renderReplyBar();
     });
   }

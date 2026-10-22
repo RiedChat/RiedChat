@@ -1,10 +1,11 @@
 // =================== features/stickers/panel-state.js ===================
-// Состояние панели стикеров (текущий пак, режим управления) и открытие/
-// закрытие/обновление панели.
+// Состояние панели (текущий пак, режим управления), открытие/закрытие/обновление.
 import { $ } from '../../core/dom-utils.js';
 import { uploadAndSend } from '../../net/upload.js';
-import { listPacks, listStickers } from './storage.js';
+
 import { renderGridForPack, renderTabsRow, revokeObjectUrls } from './panel-render.js';
+import { listPacks } from './storage/packs.js';
+import { getSticker } from './storage/stickers.js';
 
 export const panelState = {
   currentPackId: null,
@@ -13,42 +14,40 @@ export const panelState = {
 
 export function isPanelOpen(){
   const panel = $('sticker-panel');
-  return !!panel && panel.style.display !== 'none';
+  return !!panel && !panel.hidden;
 }
+
+// Перерисовывает грид текущего пака.
+export const refreshGrid = () => renderGridForPack(panelState.currentPackId, panelState.manageMode);
 
 export async function refreshPanel(){
   const packs = await listPacks();
   if(!packs.some((p) => p.id === panelState.currentPackId)){
     panelState.currentPackId = packs.length ? packs[0].id : null;
   }
-  await renderTabsRow(packs, panelState.currentPackId, panelState.manageMode);
-  await renderGridForPack(panelState.currentPackId, panelState.manageMode);
+  renderTabsRow(packs, panelState.currentPackId, panelState.manageMode);
+  await refreshGrid();
 }
 
 export function openPanel(){
   const panel = $('sticker-panel');
   if(!panel) return;
-  panel.style.display = 'flex';
+  panel.hidden = false;
   refreshPanel();
 }
 
 export function closePanel(){
   const panel = $('sticker-panel');
-  if(panel) panel.style.display = 'none';
+  if(panel) panel.hidden = true;
   revokeObjectUrls();
 }
 
 export async function sendStickerById(id){
   if(!panelState.currentPackId) return;
-  const stickers = await listStickers(panelState.currentPackId);
-  const sticker = stickers.find((s) => s.id === id);
+  const sticker = await getSticker(id);
   if(!sticker) return;
-  // Префикс "sticker-" в имени файла - маркер для net/media/mime-kind.js:isSticker,
-  // чтобы предпросмотр в списке чатов и цитата показывали "Стикер", а не "Фото"
-  // (см. features/message-swipe/shared.js:mediaLabel), а фильтр поиска мог
-  // отделить стикеры от обычных фото (features/message-search.js).
+  // Префикс "sticker-" - маркер для net/media/mime-kind.js:isSticker (метка "Стикер" в превью/цитате, фильтр поиска).
   const file = new File([sticker.blob], 'sticker-' + sticker.name, {type: sticker.mime});
-  // stickerCacheId включает переиспользование ссылки в net/upload.js:
-  // при повторной отправке этого же стикера файл не заливается заново.
+  // stickerCacheId: повторная отправка не перезаливает файл (net/upload.js).
   await uploadAndSend(file, undefined, {stickerCacheId: sticker.id});
 }

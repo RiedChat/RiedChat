@@ -1,141 +1,89 @@
 // ===================== net/history/threads.js =====================
-// Хранение и чтение переписки (state.messages) в object store 'threads',
-// и служебных данных (например, id последнего синхронизированного через MAM
-// сообщения) в 'meta'. Схема и открытие базы - см. net/history/db.js.
+// Хранение переписки (state.messages) в store 'threads' и служебных данных (напр. id последнего
+// сообщения) в 'meta'. Схема базы - schema.js.
 //
-// Значения обоих store'ов шифруются AES-GCM data-key'ом истории (`key` -
-// см. crypto/omemo-vault.js:getHistoryStorageKey, передаётся из
-// net/history.js) - раньше текст переписки лежал в IndexedDB открытым
-// текстом, в отличие от OMEMO-ключей/учётки, которые уже шифровались
-// vault'ом. Ключи record'ов (jid/meta-имя) остаются как есть - по ним
-// работает cursor в loadAll(), сами по себе они не секрет.
-import { encryptOmemoValue, decryptOmemoValue } from '../../crypto/omemo-vault.js';
-import { debugLog } from '../../core/debug-log.js';
+// Значения шифруются AES-GCM data-key'ом истории (`key`, см. crypto/omemo-vault.js:getHistoryStorageKey,
+// передаётся из history.js). Ключи записей (jid/имя meta) не шифруются - по ним работает getAllKeys() в loadAll().
+//
+// Легаси-запись (до шифрования истории) - обычный объект/массив без обёртки {v:1, iv, data}
+// (см. isEncryptedRecord) - отдаём как есть (как crypto/idb-kv.js:EncryptedIdbKv);
+// следующий saveThread/setMeta перезапишет её зашифрованной.
+import { debugLog, errMsg } from '../../core/debug-log.js';
+import { reqToPromise, txDone } from '../../core/idb.js';
+import { encryptOmemoValue, decryptOmemoValue, isEncryptedRecord } from '../../crypto/omemo-vault.js';
 
-// Легаси-запись (до введения шифрования истории) - обычный JS-объект/массив
-// напрямую, без обёртки {v:1, iv, data}. Отдаём как есть (тот же приём, что
-// и crypto/idb-kv.js:EncryptedIdbKv для OMEMO-хранилища) - следующий
-// saveThread/setMeta для этого же ключа перезапишет её уже в зашифрованном виде.
-function isEncryptedRecord(v){
-  return v && typeof v === 'object' && v.v === 1 && typeof v.iv === 'string' && typeof v.data === 'string';
-}
-
-// Возвращает {jid: [сообщения...]} - весь сохранённый на этом устройстве архив.
-export function loadAll(db, key){
-  return new Promise((resolve, reject) => {
-    if(!db){ resolve({}); return; }
-    const out = [];
-    const tx = db.transaction('threads', 'readonly');
-    const req = tx.objectStore('threads').openCursor();
-    req.onsuccess = (ev) => {
-      const cur = ev.target.result;
-      if(cur){
-        out.push([cur.key, cur.value]);
-        cur.continue();
-      } else resolve(out);
-    };
-    req.onerror = () => reject(req.error);
-  }).then(async (pairs) => {
-    const result = {};
-    for(const [jid, val] of pairs){
-      if(!isEncryptedRecord(val)){
-        result[jid] = val;
-        continue;
-      }
-      try{
-        result[jid] = await decryptOmemoValue(key, val);
-      }catch(e){
-        debugLog('[history] не удалось расшифровать тред "' + jid + '": ' + (e && e.message ? e.message : e));
-        // НЕ подставляем []: пустой массив в S.messages при следующем
-        // saveThread() перезаписал бы на диске зашифрованную переписку
-        // пустым списком. Сохраняем сырую запись в 'meta' под ключом
-        // corrupt:<jid> (если уже есть - не трогаем), тред пропускаем.
-        await backupUndecryptable(db, jid, val);
-      }
+// Возвращает {jid: [сообщения...]} - весь архив устройства.
+export async function loadAll(db, key){
+  if(!db) return {};
+  const store = db.transaction('threads', 'readonly').objectStore('threads');
+  const [jids, vals] = await Promise.all([reqToPromise(store.getAllKeys()), reqToPromise(store.getAll())]);
+  const result = {};
+  for(let i = 0; i < jids.length; i++){
+    const jid = jids[i];
+    const val = vals[i];
+    if(!isEncryptedRecord(val)){
+      result[jid] = val;
+      continue;
     }
-    return result;
-  });
+    try{
+      result[jid] = await decryptOmemoValue(key, val);
+    }catch(e){
+      debugLog('[history] не удалось расшифровать тред "' + jid + '": ' + errMsg(e));
+      // НЕ подставляем []: следующий saveThread() затёр бы зашифрованную переписку пустым списком.
+      // Сырую запись сохраняем в 'meta' под corrupt:<jid> (если уже есть - не трогаем), тред пропускаем.
+      await backupUndecryptable(db, jid, val);
+    }
+  }
+  return result;
 }
 
-// Резервная копия нечитаемой записи треда (неверный ключ, повреждение) -
-// чтобы последующая перезапись треда новыми сообщениями не уничтожила
-// единственную копию. Не шифруется повторно: это уже зашифрованная запись.
+// Резервная копия нечитаемой записи треда (неверный ключ, повреждение), чтобы перезапись
+// не уничтожила единственную копию. Повторно не шифруется - запись уже зашифрована.
 async function backupUndecryptable(db, jid, rawRecord){
   try{
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('meta', 'readwrite');
-      const store = tx.objectStore('meta');
-      const bkKey = 'corrupt:' + jid;
-      const getReq = store.get(bkKey);
-      getReq.onsuccess = () => { if(getReq.result === undefined) store.put(rawRecord, bkKey); };
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    });
+    const tx = db.transaction('meta', 'readwrite');
+    const store = tx.objectStore('meta');
+    const bkKey = 'corrupt:' + jid;
+    if(await reqToPromise(store.get(bkKey)) === undefined) store.put(rawRecord, bkKey);
+    await txDone(tx);
   }catch(e){
-    debugLog('[history] не удалось сохранить резервную копию треда "' + jid + '": ' + (e && e.message ? e.message : e));
+    debugLog('[history] не удалось сохранить резервную копию треда "' + jid + '": ' + errMsg(e));
   }
 }
 
-// Перезаписывает весь массив сообщений для конкретного jid (fire-and-forget со стороны вызывающего).
+async function put(db, storeName, key, value){
+  const tx = db.transaction(storeName, 'readwrite');
+  tx.objectStore(storeName).put(value, key);
+  await txDone(tx);
+}
+
+// Перезаписывает весь массив сообщений jid (fire-and-forget).
 export async function saveThread(db, jid, messages, key){
   if(!db) return;
-  const blob = await encryptOmemoValue(key, messages);
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('threads', 'readwrite');
-    tx.objectStore('threads').put(blob, jid);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
-  });
+  await put(db, 'threads', jid, await encryptOmemoValue(key, messages));
 }
 
-export function clearThread(db, jid){
-  return new Promise((resolve, reject) => {
-    if(!db){ resolve(); return; }
-    const tx = db.transaction('threads', 'readwrite');
-    tx.objectStore('threads').delete(jid);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+export async function clearThread(db, jid){
+  if(!db) return;
+  const tx = db.transaction('threads', 'readwrite');
+  tx.objectStore('threads').delete(jid);
+  await txDone(tx);
 }
 
-export function clearAll(db){
-  return new Promise((resolve, reject) => {
-    if(!db){ resolve(); return; }
-    const tx = db.transaction('threads', 'readwrite');
-    tx.objectStore('threads').clear();
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-// ---- служебные данные (например, id последнего синхронизированного через MAM сообщения) ----
-export function getMeta(db, key, cryptoKey){
-  return new Promise((resolve, reject) => {
-    if(!db){ resolve(null); return; }
-    const tx = db.transaction('meta', 'readonly');
-    const req = tx.objectStore('meta').get(key);
-    req.onsuccess = () => resolve(req.result === undefined ? null : req.result);
-    req.onerror = () => reject(req.error);
-  }).then(async (val) => {
-    if(!isEncryptedRecord(val)) return val;
-    try{
-      return await decryptOmemoValue(cryptoKey, val);
-    }catch(e){
-      debugLog('[history] не удалось расшифровать meta "' + key + '": ' + (e && e.message ? e.message : e));
-      return null;
-    }
-  });
+// ---- служебные данные (напр. кэш ссылок стикеров) ----
+export async function getMeta(db, key, cryptoKey){
+  if(!db) return null;
+  const val = (await reqToPromise(db.transaction('meta', 'readonly').objectStore('meta').get(key))) ?? null;
+  if(!isEncryptedRecord(val)) return val;
+  try{
+    return await decryptOmemoValue(cryptoKey, val);
+  }catch(e){
+    debugLog('[history] не удалось расшифровать meta "' + key + '": ' + errMsg(e));
+    return null;
+  }
 }
 
 export async function setMeta(db, key, val, cryptoKey){
   if(!db) return;
-  const blob = await encryptOmemoValue(cryptoKey, val);
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('meta', 'readwrite');
-    tx.objectStore('meta').put(blob, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
+  await put(db, 'meta', key, await encryptOmemoValue(cryptoKey, val));
 }

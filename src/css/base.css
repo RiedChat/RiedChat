@@ -1,61 +1,23 @@
+/* Единый способ скрыть элемент: атрибут hidden (el.hidden = true). !important - иначе display из классов (flex и т.п.) перебьёт UA-правило. */
+[hidden]{ display:none !important; }
+
 :root{
   --ink:#fff;
   --paper:#000;
-  --ink-05: rgba(255,255,255,.06);
-  --ink-10: rgba(255,255,255,.12);
-  --ink-20: rgba(255,255,255,.24);
-  --ink-40: rgba(255,255,255,.45);
-  --ink-60: rgba(255,255,255,.65);
-  --paper-10: rgba(0,0,0,.10);
-  --paper-40: rgba(0,0,0,.40);
-  --paper-70: rgba(0,0,0,.70);
-  --ok:#3ddc84;
-  --warn:#ffb020;
-  --danger:#ff4b4b;
   --r-sm:10px;
   --r-md:16px;
   --r-lg:22px;
   --r-round:999px;
 
-  /* Настройки шрифта сообщений (см. features/font-settings.js) - намеренно
-     НЕ трогают весь интерфейс, а только текст внутри #messages (см.
-     css/messages.css): --chat-font-family подменяет шрифт текста сообщений,
-     --chat-font-size задаёт размер текста пузырька, остальные размеры внутри
-     сообщения (время, имя в цитате, системные плашки) масштабируются
-     пропорционально через calc() в messages.css. */
+  /* Шрифт сообщений (features/font-settings.js) - только внутри #messages. */
   --chat-font-family: inherit;
-  --chat-font-size: 0.9062rem; /* исходный размер текста пузырька (14.5px при 16px корне) */
+  --chat-font-size: 0.9062rem;
 }
-/* Светлая тема (features/theme-settings.js) - переключается атрибутом
-   data-theme на <html>, хранится в localStorage. Просто зеркалим ink/paper
-   и их прозрачные оттенки: --ink - цвет текста/обводок, --paper - цвет
-   фона, остальные --ink-XX/--paper-XX - их полупрозрачные вариации,
-   используемые по всему интерфейсу (хедер, сайдбар, пузыри, модалки).
-   Оверлеи поверх медиа (видео-плеер, полноэкранный просмотр, кружок при
-   записи) намеренно остаются тёмными в обеих темах - так же, как в
-   Telegram/WhatsApp - и переменные не используют, темой не затрагиваются. */
-:root[data-theme="light"]{
-  --ink:#000;
-  --paper:#fff;
-  --ink-05: rgba(0,0,0,.06);
-  --ink-10: rgba(0,0,0,.12);
-  --ink-20: rgba(0,0,0,.24);
-  --ink-40: rgba(0,0,0,.45);
-  --ink-60: rgba(0,0,0,.65);
-  --paper-10: rgba(255,255,255,.10);
-  --paper-40: rgba(255,255,255,.40);
-  --paper-70: rgba(255,255,255,.70);
-}
+/* Светлая тема (theme-settings.js): data-theme на <html> меняет местами --ink и --paper. */
+:root[data-theme="light"]{ --ink:#000; --paper:#fff; }
 *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
-/* Отключаем выделение текста при долгом тапе/зажатии по всему приложению -
-   это чат-приложение, долгое нажатие используется для свайп-действий и
-   контекстных меню (см. message-select.css, swipe-gesture.js), а не для
-   выделения текста, поэтому синяя подсветка выделения и системный
-   callout-попап ("Копировать"/"Поделиться" на iOS) везде отключены.
-   Поля ввода (input/textarea/[contenteditable]) ниже явно возвращают
-   обычное поведение выделения - иначе в них было бы невозможно ни выделить,
-   ни скопировать/вставить текст. */
-html, body{
+/* Отключено выделение и callout при долгом тапе (нужен для свайпов/меню). Поля ввода ниже возвращают выделение. */
+html, body, img{
   -webkit-user-select:none;
   user-select:none;
   -webkit-touch-callout:none;
@@ -65,24 +27,13 @@ input, textarea, [contenteditable]{
   user-select:text;
   -webkit-touch-callout:default;
 }
-/* То же самое для картинок отдельно: без этого долгое нажатие на изображение
-   (стикер, фото в чате, аватар и т.п.) на мобильных открывает системное меню
-   "Сохранить изображение"/перетаскивание вместо ожидаемого действия приложения. */
-img{
-  -webkit-user-select:none;
-  user-select:none;
-  -webkit-touch-callout:none;
-  -webkit-user-drag:none;
-  user-drag:none;
-}
-button, [role="button"]{ outline:none; }
-button:focus, button:focus-visible{ outline:none; }
-html,body{height:100%;}
-/* Явно сообщаем браузеру/WebView, что страница тёмная: некоторые мобильные браузеры
-   и WebView-обёртки (форс-тёмная/форс-светлая тема) иначе сами перекрашивают текстовые
-   поля системными цветами, из-за чего вводимый текст мог становиться чёрным на чёрном. */
+/* Картинки: без системного меню "Сохранить"/drag при долгом нажатии. */
+img{ -webkit-user-drag:none; user-drag:none; }
+button, [role="button"], button:focus, button:focus-visible{ outline:none; }
+/* Тёмная схема для браузера/WebView, чтобы не перекрашивал поля ввода. */
 html{ color-scheme: dark; }
 html[data-theme="light"]{ color-scheme: light; }
+html, body{ height:100%; }
 body{
   font-family:'Inter',sans-serif;
   background:var(--paper);
@@ -92,8 +43,7 @@ body{
 }
 .mono{font-family:'IBM Plex Mono',monospace;}
 
-/* Принудительно задаём цвет вводимого текста и курсора на всех полях, чтобы никакая
-   авто-тёмная/авто-светлая эвристика браузера не подменяла его системным. */
+/* Принудительный цвет текста и курсора в полях (против auto-dark/light). */
 input, textarea{
   color: var(--ink);
   caret-color: var(--ink);
@@ -101,10 +51,29 @@ input, textarea{
 }
 
 ::-webkit-scrollbar{ width:8px; }
-::-webkit-scrollbar-thumb{ background:var(--ink-20); }
-
-/* Общий размер для inline-SVG иконок (public/icons/ui/*.svg), вставленных
-   прямо в разметку - используют stroke="currentColor", поэтому подхватывают
-   цвет текста кнопки/родителя без доп. настроек. */
-.icon-svg{ width:16px; height:16px; flex-shrink:0; vertical-align:-3px; }
 ::-webkit-scrollbar-track{ background:transparent; }
+::-webkit-scrollbar-thumb{ background:var(--ink); }
+
+/* Размер inline-SVG иконок; stroke=currentColor наследует цвет. */
+.icon-svg{ width:16px; height:16px; flex-shrink:0; vertical-align:-3px; }
+
+/* Единый hover: инверсия ink/paper. Идёт первым - специфичные правила ниже его перекрывают. */
+@media (hover: hover) and (pointer: fine){
+  .chat-menu-item:hover,
+  .chat-menu-dropdown .omemo-badge:hover,
+  .reply-bar:hover,
+  .icon-btn:hover,
+  .back-btn:hover,
+  .media-viewer-close:hover,
+  .search-result-item:hover,
+  .search-filter-btn:hover,
+  .roster-item:hover,
+  .sticker-tile:hover,
+  .icon-mini:hover,
+  .add-contact:hover,
+  .btn-secondary:hover,
+  .saved-account button:hover,
+  .sticker-add-tile:hover,
+  .logout-btn:hover,
+  .my-avatar-btn:hover{ background:var(--ink); color:var(--paper); }
+}

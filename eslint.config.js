@@ -1,8 +1,10 @@
 import js from '@eslint/js';
+import globals from 'globals';
 import importPlugin from 'eslint-plugin-import-x';
 import prettierConfig from 'eslint-config-prettier';
 
 export default [
+  { ignores: ['dist/**', 'coverage/**', 'public/**'] },
   js.configs.recommended,
   {
     files: ['src/**/*.js'],
@@ -66,6 +68,7 @@ export default [
         self: 'readonly',
         MutationObserver: 'readonly',
         CSS: 'readonly',
+        createImageBitmap: 'readonly',
       },
     },
     plugins: {
@@ -81,6 +84,26 @@ export default [
       'no-console': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],
       'no-control-regex': 'off',
+    },
+  },
+  {
+    files: ['test/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        libsignal: 'readonly',
+      },
+    },
+  },
+  {
+    files: ['*.config.js'],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: 'module',
+      globals: globals.node,
     },
   },
   prettierConfig,

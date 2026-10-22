@@ -28,4 +28,4 @@ Caddy и т.п.), раздающем HTTPS. Отдельного бэкенда,
 
 Остальные npm-скрипты (dev-сервер, тесты, lint, format) - в
 [package.json](../package.json). Флаг `?debug=1` в адресной строке включает
-отладочную панель (`src/core/env.js`).
+отладочную панель (`src/core/debug-log.js`).

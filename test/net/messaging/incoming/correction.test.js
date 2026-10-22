@@ -6,13 +6,13 @@ vi.mock('../../../../src/core/state.js', () => ({
 vi.mock('../../../../src/net/history.js', () => ({
   history: { saveThread: vi.fn().mockResolvedValue(undefined), reportWriteError: vi.fn() },
 }));
-vi.mock('../../../../src/net/message-body-parser.js', () => ({ parseMessageBody: vi.fn() }));
+vi.mock('../../../../src/net/message-body-parser.js', () => ({ parseIncomingBody: vi.fn() }));
 vi.mock('../../../../src/ui/chat-view/render-messages.js', () => ({ patchMessageBody: vi.fn() }));
 
 import { handleCorrection } from '../../../../src/net/messaging/incoming/correction.js';
 import { state } from '../../../../src/core/state.js';
 import { history } from '../../../../src/net/history.js';
-import { parseMessageBody } from '../../../../src/net/message-body-parser.js';
+import { parseIncomingBody } from '../../../../src/net/message-body-parser.js';
 import { patchMessageBody } from '../../../../src/ui/chat-view/render-messages.js';
 
 function fakeStanza({ targetId = 'm1', encrypted = false } = {}){
@@ -35,30 +35,30 @@ describe('handleCorrection', () => {
 
   it('без <replace id> ничего не делает', async () => {
     await handleCorrection(fakeStanza({ targetId: null }), 'alice@example.com');
-    expect(parseMessageBody).not.toHaveBeenCalled();
+    expect(parseIncomingBody).not.toHaveBeenCalled();
   });
 
   it('незашифрованное эхо собственного исправления самому себе - игнорируется', async () => {
     await handleCorrection(fakeStanza({ encrypted: false }), 'me@example.com');
-    expect(parseMessageBody).not.toHaveBeenCalled();
+    expect(parseIncomingBody).not.toHaveBeenCalled();
   });
 
-  it('parseMessageBody вернул null (адресовано другому устройству) - ничего не применяет', async () => {
-    parseMessageBody.mockResolvedValue(null);
+  it('parseIncomingBody вернул null (адресовано другому устройству) - ничего не применяет', async () => {
+    parseIncomingBody.mockResolvedValue(null);
     state.messages['alice@example.com'] = [{ id: 'm1', body: 'старое' }];
     await handleCorrection(fakeStanza(), 'alice@example.com');
     expect(state.messages['alice@example.com'][0].body).toBe('старое');
   });
 
   it('целевое сообщение не найдено в истории - тихо игнорируется, история не пишется', async () => {
-    parseMessageBody.mockResolvedValue({ body: 'новый текст', encrypted: false });
+    parseIncomingBody.mockResolvedValue({ body: 'новый текст', encrypted: false });
     state.messages['alice@example.com'] = [{ id: 'другое', body: 'старое' }];
     await handleCorrection(fakeStanza({ targetId: 'm1' }), 'alice@example.com');
     expect(history.saveThread).not.toHaveBeenCalled();
   });
 
   it('применяет исправление: меняет body/encrypted/edited и сохраняет историю', async () => {
-    parseMessageBody.mockResolvedValue({ body: 'исправленный текст', encrypted: true });
+    parseIncomingBody.mockResolvedValue({ body: 'исправленный текст', encrypted: true });
     const target = { id: 'm1', body: 'старое', encrypted: false };
     state.messages['alice@example.com'] = [target];
 
@@ -71,7 +71,7 @@ describe('handleCorrection', () => {
   });
 
   it('не даёт контакту через <replace> подменить НАШЕ исходящее сообщение (out:true) в истории', async () => {
-    parseMessageBody.mockResolvedValue({ body: 'подделанный текст', encrypted: false });
+    parseIncomingBody.mockResolvedValue({ body: 'подделанный текст', encrypted: false });
     const ourOwnMessage = { id: 'm1', body: 'то, что мы реально написали', out: true };
     state.messages['alice@example.com'] = [ourOwnMessage];
 
@@ -82,7 +82,7 @@ describe('handleCorrection', () => {
   });
 
   it('эхо собственной правки самому себе не может подменить входящее сообщение контакта (out:false)', async () => {
-    parseMessageBody.mockResolvedValue({ body: 'подделанный текст', encrypted: true });
+    parseIncomingBody.mockResolvedValue({ body: 'подделанный текст', encrypted: true });
     const contactsMessage = { id: 'm1', body: 'то, что реально написала Алиса', out: false };
     state.messages['me@example.com'] = [contactsMessage];
 
@@ -93,7 +93,7 @@ describe('handleCorrection', () => {
   });
 
   it('точечно патчит одну строку, только если исправление в активном чате', async () => {
-    parseMessageBody.mockResolvedValue({ body: 'x', encrypted: false });
+    parseIncomingBody.mockResolvedValue({ body: 'x', encrypted: false });
     state.messages['alice@example.com'] = [{ id: 'm1', body: 'старое' }];
     state.activeChat = 'bob@example.com';
 
@@ -106,8 +106,8 @@ describe('handleCorrection', () => {
     expect(patchMessageBody).toHaveBeenCalledWith(0);
   });
 
-  it('свежерасшифрованное исправление своего же сообщения самому себе (parsed.encrypted && bare===me) - не применяется повторно', async () => {
-    parseMessageBody.mockResolvedValue({ body: 'x', encrypted: true });
+  it('parseIncomingBody отфильтровал собственное зашифрованное эхо (null) - исправление не применяется повторно', async () => {
+    parseIncomingBody.mockResolvedValue(null);
     state.messages['me@example.com'] = [{ id: 'm1', body: 'старое' }];
     await handleCorrection(fakeStanza({ targetId: 'm1', encrypted: true }), 'me@example.com');
     expect(state.messages['me@example.com'][0].body).toBe('старое');

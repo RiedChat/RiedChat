@@ -1,18 +1,9 @@
 // ===================== ui/voice-player/waveform-peaks.js =====================
-// Вычисление амплитудных пиков волны из декодированного аудио.
-// Выделено из waveform-player.js: чистая функция arrayBuffer -> Float32Array,
-// не зависящая от DOM/canvas.
+// Амплитудные пики из декодированного аудио: чистая функция arrayBuffer -> Float32Array, без DOM/canvas.
 
 const BARS = 42;
 
-// Ограничение параллелизма: без него открытие чата с историей из N голосовых
-// сообщений без ID3-тегов запускало N decodeAudioData()+суммирование по всем
-// сэмплам ПОЧТИ ОДНОВРЕМЕННО (каждый плеер монтируется независимо) - заметный
-// джанк главного потока, плюс у Chrome/Safari есть жёсткий лимит на число
-// одновременно живых AudioContext (обычно ~6), после которого decodeAudioData
-// начинает падать. Простая очередь с ограничением MAX_CONCURRENT достаточна:
-// тяжёлая работа остаётся синхронной (Web Worker/OfflineAudioContext - отдельная,
-// более крупная переделка), но перестаёт запускаться вся сразу пачкой.
+// Ограничение параллелизма: без него чат с N голосовыми без ID3 запускал N decodeAudioData()+суммирований почти одновременно (джанк главного потока), а у Chrome/Safari лимит живых AudioContext (~6), после которого decodeAudioData падает. Очередь с MAX_CONCURRENT достаточна: работа остаётся синхронной (Web Worker/OfflineAudioContext - отдельная переделка), но не стартует пачкой.
 const MAX_CONCURRENT = 3;
 let _active = 0;
 const _queue = [];
@@ -27,38 +18,34 @@ function runNext(){
   });
 }
 
-function decodePeaks(arrayBuffer){
-  return (async () => {
-    try{
-      if(!arrayBuffer) throw new Error('no data');
-      const AC = window.AudioContext || window.webkitAudioContext;
-      const tmp = new AC();
-      // decodeAudioData может «съедать» буфер в некоторых движках - отдаём копию.
-      const decoded = await tmp.decodeAudioData(arrayBuffer.slice(0));
-      const data = decoded.getChannelData(0);
-      const block = Math.max(1, Math.floor(data.length / BARS));
-      const raw = [];
-      for(let i = 0; i < BARS; i++){
-        let sum = 0;
-        const start = i * block, end = Math.min(data.length, start + block);
-        for(let j = start; j < end; j++) sum += Math.abs(data[j]);
-        raw.push(end > start ? sum / (end - start) : 0);
-      }
-      const max = Math.max(...raw, 0.0001);
-      tmp.close && tmp.close();
-      return raw.map(v => Math.max(0.12, v / max));
-    }catch(_e){
-      return Array.from({length: BARS}, (_, i) => 0.2 + 0.7 * Math.abs(Math.sin(i * 12.9898)));
+// Контекст закрывается в finally, в том числе при исключении decodeAudioData: иначе утечка AudioContext и исчерпание лимита (~6).
+async function decodePeaks(arrayBuffer){
+  let ctx = null;
+  try{
+    if(!arrayBuffer) throw new Error('no data');
+    const AC = window.AudioContext || window.webkitAudioContext;
+    ctx = new AC();
+    // decodeAudioData в некоторых движках «съедает» буфер - отдаём копию.
+    const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const data = decoded.getChannelData(0);
+    const block = Math.max(1, Math.floor(data.length / BARS));
+    const peaks = [];
+    for(let i = 0; i < BARS; i++){
+      let sum = 0;
+      const start = i * block, end = Math.min(data.length, start + block);
+      for(let j = start; j < end; j++) sum += Math.abs(data[j]);
+      peaks.push(end > start ? sum / (end - start) : 0);
     }
-  })();
+    const max = Math.max(...peaks, 0.0001);
+    return peaks.map(v => Math.max(0.12, v / max));
+  }catch{
+    return Array.from({length: BARS}, (_, i) => 0.2 + 0.7 * Math.abs(Math.sin(i * 12.9898)));
+  }finally{
+    if(ctx?.close) ctx.close().catch(() => {});
+  }
 }
 
-// Возвращает массив из BARS чисел в диапазоне [0.12, 1] - амплитуду
-// по блокам сэмплов. При отсутствии данных или ошибке декодирования
-// возвращает детерминированную псевдо-волну (не тишину), чтобы плеер
-// не выглядел сломанным. Сама тяжёлая работа встаёт в очередь и ждёт
-// свободного слота (см. MAX_CONCURRENT выше), если сейчас уже decode'ится
-// MAX_CONCURRENT других сообщений.
+// Возвращает BARS чисел в [0.12, 1] - амплитуду по блокам сэмплов. Без данных или при ошибке декодирования - детерминированная псевдо-волна (не тишина), чтобы плеер не выглядел сломанным. Работа ждёт слот очереди (MAX_CONCURRENT).
 export function computeWaveformPeaks(arrayBuffer){
   return new Promise(resolve => {
     _queue.push({ arrayBuffer, resolve });

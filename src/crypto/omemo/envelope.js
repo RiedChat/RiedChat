@@ -1,15 +1,13 @@
 // ===================== crypto/omemo/envelope.js =====================
-// SCE-конверт (XEP-0420), которого требует профиль настоящего omemo:2 -
-// шифруется не голый текст, а этот XML-конверт вокруг него.
-import { escapeHtml } from '../../core/dom-utils.js';
-import { bytes as B } from '../bytes.js';
+// SCE-конверт (XEP-0420): omemo:2 шифрует XML-конверт, а не голый текст.
+import { escapeHtml } from '../../core/safe-html.js';
+import * as B from '../bytes.js';
+
 import { omemo } from './state.js';
 
 Object.assign(omemo, {
-  // ---------- SCE-конверт (XEP-0420), профиль которого требует omemo:2 ----------
-  // Настоящий omemo:2 шифрует не голый текст, а такой XML-конверт - без него
-  // спек-совместимые клиенты (Conversations, Gajim и т.п.) не смогут прочитать
-  // сообщение, т.к. ожидают именно SCE-обёртку внутри <payload>.
+  // ---------- SCE-конверт (XEP-0420) ----------
+  // Без конверта спек-совместимые клиенты (Conversations, Gajim) не прочитают <payload>.
   _buildSceEnvelope(bodyText, fromBareJid){
     const rpadBytes = B.randomBytes(1 + Math.floor(Math.random() * 200));
     const rpadB64 = B.b64FromBuf(rpadBytes);
@@ -25,10 +23,8 @@ Object.assign(omemo, {
     const xmlStr = B.bufToUtf8(bytes);
     const doc = new DOMParser().parseFromString(xmlStr, 'text/xml');
     if(doc.querySelector('parsererror')) throw new Error('SCE-конверт: битый XML после расшифровки');
-    // Affix-элемент <from> - сверяем с реальным отправителем стансы (уже проверенным
-    // на уровне decryptStanza через SessionCipher/Double Ratchet). Несовпадение значит,
-    // что кто-то (сервер, посредник) переупаковал шифротекст под другим отправителем -
-    // именно от такой подмены и защищает этот affix по XEP-0384/XEP-0420.
+    // Affix <from> сверяем с реальным отправителем станзы (проверен через SessionCipher).
+    // Несовпадение - шифротекст переупакован под другим отправителем (XEP-0384/XEP-0420).
     if(expectedFromBareJid){
       const fromEl = doc.querySelector('envelope > from');
       const claimedFrom = fromEl ? fromEl.getAttribute('jid') : null;

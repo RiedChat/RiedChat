@@ -6,13 +6,13 @@ vi.mock('../../../../src/core/state.js', () => ({
 vi.mock('../../../../src/crypto/omemo/state.js', () => ({
   omemo: { decryptStanza: vi.fn() },
 }));
-vi.mock('../../../../src/features/call/call-manager.js', () => ({
-  callManager: { onSignal: vi.fn() },
+vi.mock('../../../../src/features/call/signal-handlers.js', () => ({
+  onSignal: vi.fn(),
 }));
 
 import { handleCallSignal } from '../../../../src/net/messaging/incoming/call-signal.js';
 import { omemo } from '../../../../src/crypto/omemo/state.js';
-import { callManager } from '../../../../src/features/call/call-manager.js';
+import { onSignal } from '../../../../src/features/call/signal-handlers.js';
 
 function fakeStanza({ type = 'offer', id = 'call-1', from = 'alice@example.com/phone', hasEncrypted = true } = {}){
   return {
@@ -53,32 +53,32 @@ describe('handleCallSignal', () => {
     omemo.decryptStanza.mockResolvedValue(JSON.stringify({ sdp: 'x' }));
     await handleCallSignal(fakeStanza({ from: 'me@example.com/mobile' }), 'me@example.com');
     expect(omemo.decryptStanza).toHaveBeenCalled();
-    expect(callManager.onSignal).toHaveBeenCalledWith('me@example.com/mobile', 'me@example.com', 'offer', 'call-1', { sdp: 'x' });
+    expect(onSignal).toHaveBeenCalledWith('me@example.com/mobile', 'me@example.com', 'offer', 'call-1', { sdp: 'x' });
   });
 
   it('без <encrypted> в станзе - отбрасывается, plaintext-фоллбека для звонков нет', async () => {
     await handleCallSignal(fakeStanza({ hasEncrypted: false }), 'alice@example.com');
     expect(omemo.decryptStanza).not.toHaveBeenCalled();
-    expect(callManager.onSignal).not.toHaveBeenCalled();
+    expect(onSignal).not.toHaveBeenCalled();
   });
 
   it('decryptStanza вернул null (конверт адресован другому нашему устройству) - тихо выходит', async () => {
     omemo.decryptStanza.mockResolvedValue(null);
     await handleCallSignal(fakeStanza(), 'alice@example.com');
-    expect(callManager.onSignal).not.toHaveBeenCalled();
+    expect(onSignal).not.toHaveBeenCalled();
   });
 
-  it('decryptStanza бросил исключение (битый payload) - не падает, callManager не вызывается', async () => {
+  it('decryptStanza бросил исключение (битый payload) - не падает, onSignal не вызывается', async () => {
     omemo.decryptStanza.mockRejectedValue(new Error('decrypt fail'));
     await expect(handleCallSignal(fakeStanza(), 'alice@example.com')).resolves.toBeUndefined();
-    expect(callManager.onSignal).not.toHaveBeenCalled();
+    expect(onSignal).not.toHaveBeenCalled();
   });
 
-  it('успешная расшифровка: JSON.parse’ит payload и зовёт callManager.onSignal с fromJid (полным) и bare', async () => {
+  it('успешная расшифровка: JSON.parse’ит payload и зовёт onSignal с fromJid (полным) и bare', async () => {
     omemo.decryptStanza.mockResolvedValue(JSON.stringify({ candidate: 'c1' }));
     await handleCallSignal(fakeStanza({ from: 'alice@example.com/phone', type: 'candidate', id: 'call-9' }), 'alice@example.com');
 
-    expect(callManager.onSignal).toHaveBeenCalledWith(
+    expect(onSignal).toHaveBeenCalledWith(
       'alice@example.com/phone', 'alice@example.com', 'candidate', 'call-9', { candidate: 'c1' }
     );
   });
@@ -86,6 +86,6 @@ describe('handleCallSignal', () => {
   it('decryptStanza вернул пустую строку (decline/hangup без payload) - передаёт {} вместо null', async () => {
     omemo.decryptStanza.mockResolvedValue('');
     await handleCallSignal(fakeStanza({ type: 'hangup' }), 'alice@example.com');
-    expect(callManager.onSignal).toHaveBeenCalledWith(expect.any(String), 'alice@example.com', 'hangup', 'call-1', {});
+    expect(onSignal).toHaveBeenCalledWith(expect.any(String), 'alice@example.com', 'hangup', 'call-1', {});
   });
 });

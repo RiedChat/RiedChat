@@ -1,12 +1,11 @@
 // =================== features/stickers/panel-render.js ===================
-// Рендеринг разметки панели стикеров: вкладки паков и грид стикеров.
-// blob: URL на пак стикеров живой (не перекодируется через canvas - иначе
-// GIF потерял бы анимацию, см. storage.js), поэтому их нужно вручную
-// освобождать при каждом перерисовывании грида, иначе течёт память вкладки.
+// Рендер вкладок паков и грида. blob: URL не перекодируются (иначе GIF теряет анимацию),
+// поэтому освобождаются вручную при каждой перерисовке грида.
 import { $ } from '../../core/dom-utils.js';
-import { html, raw, setHTML } from '../../core/safe-html.js';
-import { listStickers } from './storage.js';
+import { cx, html, setHTML } from '../../core/safe-html.js';
 import { t } from '../../i18n/t.js';
+
+import { listStickers } from './storage/stickers.js';
 
 const objectUrls = new Map(); // stickerId -> blob url
 
@@ -19,8 +18,8 @@ function tabHtml(p, currentPackId, manageMode){
   const active = p.id === currentPackId;
   const delBtn = manageMode
     ? html`<span class="sticker-tab-del" data-del-pack="${p.id}" title="${t('stickers.deletePackTitle')}">×</span>`
-    : raw('');
-  return String(html`<button type="button" class="sticker-tab ${raw(active ? 'active' : '')}" data-pack-id="${p.id}">${p.name}${raw(String(delBtn))}</button>`);
+    : '';
+  return html`<button type="button" class="${cx('sticker-tab', active && 'active')}" data-pack-id="${p.id}">${p.name}${delBtn}</button>`;
 }
 
 function stickerTileHtml(s, manageMode){
@@ -28,11 +27,11 @@ function stickerTileHtml(s, manageMode){
   objectUrls.set(s.id, url);
   const delBtn = manageMode
     ? html`<button type="button" class="sticker-delete" data-del-sticker="${s.id}" title="${t('stickers.deleteStickerBtnTitle')}">×</button>`
-    : raw('');
-  return String(html`<div class="sticker-tile" data-sticker-id="${s.id}">
+    : '';
+  return html`<div class="sticker-tile" data-sticker-id="${s.id}">
     <img src="${url}" alt="" draggable="false">
-    ${raw(String(delBtn))}
-  </div>`);
+    ${delBtn}
+  </div>`;
 }
 
 export async function renderGridForPack(packId, manageMode){
@@ -44,13 +43,13 @@ export async function renderGridForPack(packId, manageMode){
     return;
   }
   const stickers = await listStickers(packId);
-  const addTile = '<div class="sticker-tile sticker-add-tile" id="sticker-add-tile" title="' + t('stickers.addStickerTitle') + '">+</div>';
-  setHTML(grid, raw(stickers.map((s) => stickerTileHtml(s, manageMode)).join('') + addTile));
+  const addTile = html`<div class="sticker-tile sticker-add-tile" id="sticker-add-tile" title="${t('stickers.addStickerTitle')}">+</div>`;
+  setHTML(grid, html`${stickers.map((s) => stickerTileHtml(s, manageMode))}${addTile}`);
 }
 
-export async function renderTabsRow(packs, currentPackId, manageMode){
+export function renderTabsRow(packs, currentPackId, manageMode){
   const tabsEl = $('sticker-tabs');
   if(!tabsEl) return;
-  const addTab = '<button type="button" class="sticker-tab sticker-tab-add" id="sticker-add-pack-btn" title="' + t('stickers.newPackTitle') + '">+</button>';
-  setHTML(tabsEl, raw(packs.map((p) => tabHtml(p, currentPackId, manageMode)).join('') + addTab));
+  const addTab = html`<button type="button" class="sticker-tab sticker-tab-add" id="sticker-add-pack-btn" title="${t('stickers.newPackTitle')}">+</button>`;
+  setHTML(tabsEl, html`${packs.map((p) => tabHtml(p, currentPackId, manageMode))}${addTab}`);
 }

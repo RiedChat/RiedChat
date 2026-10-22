@@ -1,23 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// НЕ РЕАЛИЗОВАНО: полный round-trip encryptFor(Alice) → decryptStanza(Bob).
-// Причина - не в коде проекта, а в public/js/crypto/libsignal-protocol.js
-// (generated emscripten/asm.js-бандл, см. README.md): в headless Node/jsdom
-// V8 не компилирует его как настоящий asm.js ("Invalid asm.js: Expected
-// shift of word size" в логе) и молча деградирует в обычный JS-интерпретатор,
-// после чего SessionCipher.encrypt() на первом же X3DH-хендшейке падает с
-// "Tried to convert a non-string of type object to an array buffer" -
-// воспроизведено даже на чистом in-memory SignalProtocolStore без всякого
-// кода этого проекта, т.е. баг воспроизводится и без store.js/omemo/*.js.
-// В реальном браузере (для чего библиотека и написана) всё работает -
-// это подтверждено самим приложением.
-// Если понадобится закрыть именно этот сценарий тестами - единственный
-// вариант вернуться к нему уже не через jsdom, а через настоящий браузерный
-// движок (vitest --browser или Playwright), не через vitest+jsdom.
+// НЕ РЕАЛИЗОВАНО: round-trip encryptFor(Alice) → decryptStanza(Bob).
+// Причина - libsignal-protocol.js (emscripten/asm.js): в Node/jsdom V8 не компилирует его как asm.js,
+// и SessionCipher.encrypt() падает на первом X3DH ("Tried to convert a non-string of type object
+// to an array buffer") - воспроизводится и без кода проекта. В браузере работает.
+// Закрыть сценарий можно только в настоящем браузере (vitest --browser / Playwright).
 //
-// Ниже - то, что реально тестируется headless: getDeviceList/session-builder
-// корректно обрабатывают отсутствие bundle получателя (encryptFor должен
-// НЕ отправлять сообщение без OMEMO, а не падать и не молчать).
+// Ниже - headless-проверка: без bundle получателя encryptFor не должен отправлять без OMEMO,
+// падать или молчать.
 
 vi.mock('../../../src/crypto/omemo-vault.js', async (importOriginal) => {
   const actual = await importOriginal();
@@ -80,8 +70,7 @@ describe('OMEMO encryptFor - устройство без опубликован�
       const builder = { c(name, cattrs){ path.push({name, attrs: cattrs}); return builder; }, _path: path };
       return builder;
     };
-    // Ни один запрос bundle не отвечает успехом - имитация мёртвого/
-    // отсутствующего PEP-узла собеседника.
+    // Ни один запрос bundle не успешен - имитация мёртвого PEP-узла.
     alice.connection = { sendIQ(_iq, _onSuccess, onError){ onError(null); } };
   });
 

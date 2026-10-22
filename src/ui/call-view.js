@@ -1,95 +1,76 @@
 // ===================== ui/call-view.js =====================
-// Отрисовка экрана звонка по S.call - по аналогии с ui/chat-head.js: только
-// чтение состояния и запись в DOM, никакой логики звонка/сигналинга здесь
-// нет (та - в features/call/call-manager.js, которая вызывает renderCallUI()
-// после каждой своей мутации S.call, как send.js вызывает renderMessages()).
-import { $, initials, nickOf } from '../core/dom-utils.js';
-import { html, setHTML } from '../core/safe-html.js';
+// Экран звонка по state.call: только чтение состояния и запись в DOM.
+// Логика звонка - в features/call/call-actions.js, signal-handlers.js (вызывает renderCallUI() после мутаций state.call).
+import { $, contactName } from '../core/dom-utils.js';
+import { setHTML } from '../core/safe-html.js';
 import { state } from '../core/state.js';
 import { t } from '../i18n/t.js';
-import { renderCallBanner } from './chat-head.js';
 
-const S = state;
+import { contactAvatarHtml } from './contact-view.js';
 
-function statusLabels(){
-  return {
-    'ringing-in': { video: t('call.ringingInVideo'), audio: t('call.ringingInAudio') },
-    'ringing-out': { video: t('call.ringingOutVideo'), audio: t('call.ringingOutAudio') },
-    'connecting': { video: t('call.connecting'), audio: t('call.connecting') },
-    'active': { video: t('call.active'), audio: t('call.active') },
-  };
+// Привязывает поток к <video>, has-stream ставится по наличию видеотрека: в аудиозвонке потоки содержат только аудио, и пустой <video> был бы виден.
+function bindStream(el, stream = null){
+  if(el.srcObject !== stream) el.srcObject = stream;
+  const has = !!stream?.getVideoTracks().length;
+  el.classList.toggle('has-stream', has);
+  return has;
+}
+
+// Ключи подписи статуса: [аудио, видео].
+const STATUS_KEYS = {
+  'ringing-in': ['call.ringingInAudio', 'call.ringingInVideo'],
+  'ringing-out': ['call.ringingOutAudio', 'call.ringingOutVideo'],
+  'connecting': ['call.connecting', 'call.connecting'],
+  'active': ['call.active', 'call.active'],
+};
+const statusKey = (status, hasVideo) => STATUS_KEYS[status]?.[hasVideo ? 1 : 0];
+
+// Плашка «вернуться к звонку»: только если открыт чат с собеседником свёрнутого звонка (state.call.minimized).
+// Вызывается из app.js:openChat и renderCallUI.
+export function renderCallBanner(){
+  const banner = $('call-return-banner');
+  if(!banner) return;
+  const call = state.call;
+  const show = !!(call?.minimized && call.bareJid === state.activeChat);
+  banner.hidden = !show;
+  if(show){
+    $('call-return-banner-text').textContent = call.hasVideo ? t('call.returnBannerVideo') : t('call.returnBannerAudio');
+  }
 }
 
 export function renderCallUI(){
+  const call = state.call;
+  // При сворачивании скрываем только оверлей: треки и RTCPeerConnection живут дальше.
   const overlay = $('call-overlay');
-  const call = S.call;
-  if(!call){
-    overlay.classList.remove('active');
-    renderCallBanner();
-    return;
-  }
-  // Оверлей скрываем при сворачивании (call.minimized), сам звонок при этом
-  // не трогаем - треки продолжают играть, RTCPeerConnection не закрывается
-  // (см. features/call/call-actions.js:minimizeCall/restoreCall).
-  overlay.classList.toggle('active', !call.minimized);
-  // Аудиозвонок (нет своего и чужого видео) - чёрный фон на весь экран,
-  // как в обычном телефонном звонке, а не светлая тема чата. Как только
-  // появляется хоть какое-то видео (своё или собеседника), .call-remote-video
-  // сам перекрывает фон - класс здесь не мешает.
-  overlay.classList.toggle('audio-only', !call.hasVideo && !(call.remoteStream && call.remoteStream.getVideoTracks().length));
+  overlay.classList.toggle('active', !!call && !call.minimized);
+  if(call) renderCallOverlay(call, overlay);
+  renderCallBanner();
+}
 
-  const contact = S.roster[call.bareJid] || {};
-  setHTML($('call-peer-name'), html`${contact.nick || contact.name || nickOf(call.bareJid)}`);
-  setHTML($('call-peer-avatar'), contact.avatarUrl
-    ? html`<img src="${contact.avatarUrl}" alt="">`
-    : html`${initials(call.bareJid)}`);
-  const labels = statusLabels()[call.status];
-  $('call-status-label').textContent = (labels && (call.hasVideo ? labels.video : labels.audio)) || '';
+function renderCallOverlay(call, overlay){
+  const contact = state.roster[call.bareJid];
+  $('call-peer-name').textContent = contactName(call.bareJid);
+  setHTML($('call-peer-avatar'), contactAvatarHtml(contact, call.bareJid));
+  const key = statusKey(call.status, call.hasVideo);
+  $('call-status-label').textContent = key ? t(key) : '';
 
-  $('call-incoming-actions').style.display = (call.direction === 'in' && call.status === 'ringing-in') ? 'flex' : 'none';
-  $('call-outgoing-actions').style.display = (call.direction === 'out' && call.status === 'ringing-out') ? 'flex' : 'none';
-  $('call-active-actions').style.display = (call.status === 'connecting' || call.status === 'active') ? 'flex' : 'none';
-
-  // Потоков пока не бывает (WebRTC-слой ещё не подключён к call-manager) -
-  // код уже готов их принять, как только call.localStream/remoteStream
-  // появятся из pc.ontrack/getUserMedia.
+  // Потоки появятся из pc.ontrack/getUserMedia; WebRTC-слой (peer-connection.js) ещё не подключён.
   const remoteVideo = $('call-remote-video');
   const localVideo = $('call-local-video');
-  if(remoteVideo.srcObject !== (call.remoteStream || null)){
-    remoteVideo.srcObject = call.remoteStream || null;
-  }
-  // has-stream проверяет именно наличие ВИДЕОтрека, а не сам факт объекта
-  // MediaStream - в аудиозвонке localStream/remoteStream содержат только
-  // аудиотрек, и по одной лишь истинности объекта здесь раньше всё равно
-  // показывался пустой чёрный <video> (для local - заметный квадратик с
-  // рамкой в углу поверх сплошного чёрного фона аудиозвонка).
-  const remoteHasVideo = !!(call.remoteStream && call.remoteStream.getVideoTracks().length);
-  const localHasVideo = !!(call.localStream && call.localStream.getVideoTracks().length);
-  remoteVideo.classList.toggle('has-stream', remoteHasVideo);
-  if(localVideo.srcObject !== (call.localStream || null)){
-    localVideo.srcObject = call.localStream || null;
-  }
-  localVideo.classList.toggle('has-stream', localHasVideo);
-  // Зеркалим self-view только для фронтальной камеры - так, как человек
-  // привык видеть себя; задняя камера снимает окружающий мир, зеркалить
-  // его не нужно. Собеседник при этом видит ту же (зеркальную) картинку -
-  // сам исходящий трек зеркалится через canvas в features/call/media.js:
-  // addLocalTracksToCall/switchCallCamera, а не только локальный CSS-класс.
+  const remoteHasVideo = bindStream(remoteVideo, call.remoteStream);
+  const localHasVideo = bindStream(localVideo, call.localStream);
+  // Аудиозвонок (нет видео): чёрный фон на весь экран. Видео перекрывает его само.
+  overlay.classList.toggle('audio-only', !call.hasVideo && !remoteHasVideo);
+  // Self-view зеркалим только для фронтальной камеры. Исходящий трек зеркалится через canvas (features/call/media.js), не только CSS.
   localVideo.classList.toggle('mirrored', call.facingMode !== 'environment');
 
-  $('call-mute-btn').classList.toggle('muted', !!call.muted);
-  // Кнопка камеры имеет смысл только на видеозвонке - на аудиозвонке своей
-  // камеры нет вовсе, переключать нечего.
-  $('call-camera-btn').hidden = !call.hasVideo;
-  $('call-camera-btn').classList.toggle('off', !!call.cameraOff);
-  // Кнопка смены камеры - только на видеозвонке, пока у нас реально есть
-  // исходящий видеотрек, и только если на устройстве больше одной камеры
-  // (multipleCameras выставляется асинхронно после старта звонка, см.
-  // outgoing-call.js/call-actions.js:detectCallMultipleCameras).
-  $('call-switch-cam-btn').hidden = !(call.hasVideo && localHasVideo && call.multipleCameras);
-  // Сворачивание доступно на исходящем/соединяющемся/активном звонке - на
-  // входящем непринятом сворачивать нечего (сначала нужно принять/отклонить).
-  $('call-minimize-btn').hidden = (call.direction === 'in' && call.status === 'ringing-in');
-
-  renderCallBanner();
+  // Видимость и состояние кнопок - тоже CSS по data-атрибутам оверлея (css/call.css).
+  // canSwitchCam: видеозвонок, есть исходящий видеотрек и больше одной камеры (multipleCameras ставится асинхронно, см. detectCallMultipleCameras).
+  Object.assign(overlay.dataset, {
+    status: call.status,
+    video: String(!!call.hasVideo),
+    muted: String(!!call.muted),
+    cameraOff: String(!!call.cameraOff),
+    canSwitchCam: String(!!(call.hasVideo && localHasVideo && call.multipleCameras)),
+  });
 }

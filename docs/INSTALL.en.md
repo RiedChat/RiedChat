@@ -29,4 +29,4 @@ login. No separate config file needs to be set at build time.
 
 The rest of the npm scripts (dev server, tests, lint, format) are in
 [package.json](../package.json). The `?debug=1` query flag enables the debug
-panel (`src/core/env.js`).
+panel (`src/core/debug-log.js`).

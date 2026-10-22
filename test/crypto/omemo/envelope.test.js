@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { omemo } from '../../../src/crypto/omemo/state.js';
 import '../../../src/crypto/omemo/envelope.js';
-import { bytes as B } from '../../../src/crypto/bytes.js';
+import * as B from '../../../src/crypto/bytes.js';
 
 describe('SCE-конверт (XEP-0420) - _buildSceEnvelope/_parseSceEnvelope', () => {
   it('round trip: текст, отправленный в конверте, извлекается обратно', () => {
@@ -14,7 +14,7 @@ describe('SCE-конверт (XEP-0420) - _buildSceEnvelope/_parseSceEnvelope', 
     const envBytes = omemo._buildSceEnvelope('<script>alert(1)</script> & "кавычки"', 'alice@example.com');
     const text = omemo._parseSceEnvelope(envBytes, 'alice@example.com');
     expect(text).toBe('<script>alert(1)</script> & "кавычки"');
-    // Сырой XML внутри конверта не должен содержать непроэкранированный тег.
+    // Сырой XML конверта не содержит неэкранированный тег.
     const xml = B.bufToUtf8(envBytes);
     expect(xml).not.toContain('<script>alert(1)</script>');
   });

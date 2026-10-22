@@ -1,35 +1,21 @@
 // ===================== features/file-upload.js =====================
-// Кнопка "прикрепить файл" - выбор из файловой системы (можно сразу несколько,
-// до MAX_FILES штук) и отправка через uploadAndSend одно за другим.
-import { $, toast } from '../core/dom-utils.js';
-import { uploadAndSend } from '../net/upload.js';
-import { uploadTransport } from '../net/upload/transport.js';
+// Кнопка "прикрепить файл": выбор нескольких файлов (до MAX_FILES), отправка через uploadAndSend по одному.
+import { $, toast, wireFilePicker } from '../core/dom-utils.js';
 import { t } from '../i18n/t.js';
+import { cancelUpload } from '../net/upload/transport.js';
+import { uploadAndSend } from '../net/upload.js';
 const MAX_FILES = 10;
 
 export function wireFileUpload(){
-    $('attach-btn').addEventListener('click', () => $('file-input').click());
-    // Клик по прогресс-бару загрузки - отмена текущего файла (xhr.abort()).
-    // Если в очереди ждут ещё файлы (см. file-upload.js цикл ниже или
-    // net/upload.js:_uploadChain), они продолжат загружаться следом.
-    $('upload-progress').addEventListener('click', () => uploadTransport.cancelCurrent());
-    $('file-input').addEventListener('change', async (e) => {
-      let files = Array.from(e.target.files || []);
-      e.target.value = ''; // сбрасываем сразу, чтобы повторный выбор тех же файлов срабатывал
+  // Клик по прогресс-бару отменяет текущий файл (xhr.abort()); остальные в очереди (цикл ниже, net/upload.js:_uploadChain) продолжают.
+  $('upload-progress').addEventListener('click', () => cancelUpload());
+  wireFilePicker('attach-btn', 'file-input', async (files) => {
+    const batch = files.slice(0, MAX_FILES);
+    if(batch.length < files.length) toast(t('files.tooMany', { max: MAX_FILES }));
 
-      if(files.length === 0) return;
-      if(files.length > MAX_FILES){
-        toast(t('files.tooMany', { max: MAX_FILES }));
-        files = files.slice(0, MAX_FILES);
-      }
-
-      // Отправляем строго по одному: сервер загрузки выдаёт слот и прогресс-бар
-      // в интерфейсе один на весь composer, поэтому параллельные PUT просто
-      // затирали бы друг другу progress/label. Порядок в чате при этом
-      // сохраняется таким же, каким файлы были выбраны.
-      for(let i = 0; i < files.length; i++){
-        const label = files.length > 1 ? `(${i + 1}/${files.length})` : '';
-        await uploadAndSend(files[i], label);
-      }
-    });
+    // Строго по одному: слот и прогресс-бар общие на весь composer, параллельные PUT затирали бы progress/label; порядок в чате сохраняется.
+    for(const [i, file] of batch.entries()){
+      await uploadAndSend(file, batch.length > 1 ? `(${i + 1}/${batch.length})` : '');
+    }
+  });
 }

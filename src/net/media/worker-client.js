@@ -1,20 +1,15 @@
 // ===================== net/media/worker-client.js =====================
-// Обёртка над Web Worker'ом (net/media-worker/media-worker.js), который
-// скачивает, расшифровывает и кэширует файлы в IndexedDB. Выделено из
-// net/media.js - здесь только протокол общения с воркером (создание,
-// роутинг сообщений по reqId, счётчик запросов), без бизнес-логики
-// decrypt/primeLocalBlob.
-import { debugLog } from '../../core/debug-log.js';
+// Обёртка над Web Worker'ом net/media-worker/media-worker.js (скачивание, расшифровка, кэш в IndexedDB):
+// создание, роутинг сообщений по reqId, счётчик запросов. Логика decrypt/primeLocalBlob - в net/media.js.
+import { debugLog, errMsg } from '../../core/debug-log.js';
 
 let worker = null;
 let reqCounter = 0;
-const pending = new Map(); // reqId -> {resolve, onProgress}
+const pending = new Map();  // reqId -> {resolve, onProgress}
 
 function getWorker(){
   if(!worker){
-    // Паттерн new Worker(new URL(...), {type:'module'}) - Vite распознаёт
-    // его при сборке и бандлит воркер вместе со всеми его import'ами в
-    // отдельный минифицированный чанк (а не в public/ как раньше).
+    // Vite бандлит воркер из `new Worker(new URL(...), {type:'module'})` с его импортами в отдельный чанк.
     worker = new Worker(new URL('../media-worker/media-worker.js', import.meta.url), { type: 'module' });
     worker.onmessage = (ev) => {
       const msg = ev.data || {};
@@ -25,7 +20,7 @@ function getWorker(){
         return;
       }
       if(msg.type === 'cache-write-error'){
-        // Не критично для пользователя (файл уже показан) - просто в лог.
+        // Файл уже показан - только лог.
         debugLog('[media] воркер не смог записать постоянный кэш: ' + msg.error);
         return;
       }
@@ -35,48 +30,24 @@ function getWorker(){
       }
     };
     worker.onerror = (e) => {
-      debugLog('[media] ошибка воркера: ' + (e && e.message ? e.message : e));
+      debugLog('[media] ошибка воркера: ' + errMsg(e));
     };
   }
   return worker;
 }
 
-// Вызывается из net/history.js:init() после того, как AES-GCM data-key
-// истории/медиа-кэша получен из vault'а (crypto/omemo-vault.js:
-// getHistoryStorageKey). Воркер сам к vault/UI обратиться не может (нет
-// доступа к DOM для BiometricPrompt/passphrase-модалки), поэтому получает
-// готовый CryptoKey один раз через postMessage (CryptoKey - структурно
-// клонируемый тип, ключ при этом не покидает движок как "сырые" байты).
+// Вызывается из net/history.js:init() после получения AES-GCM ключа истории/кэша
+// (crypto/omemo-vault.js:getHistoryStorageKey). Воркер не имеет доступа к DOM/vault, поэтому
+// CryptoKey (структурно клонируемый, не раскрывается как сырые байты) передаётся один раз через postMessage.
 export function sendCacheKeyToWorker(key){
   getWorker().postMessage({ type: 'set-cache-key', key });
 }
 
-function nextReqId(){
-  return 'r' + (++reqCounter);
-}
-
-// Отправляет сообщение воркеру и возвращает промис, который резолвится
-// сообщением типа 'result'/'stored'. onProgress вызывается на каждое
-// промежуточное 'progress'-сообщение с тем же reqId.
 export function request(payload, onProgress){
-  const reqId = nextReqId();
-  const promise = new Promise((resolve) => {
-    pending.set(reqId, { resolve, onProgress: onProgress || null });
+  const reqId = 'r' + (++reqCounter);
+  return new Promise((resolve) => {
+    pending.set(reqId, { resolve, onProgress });
+    try{ getWorker().postMessage({ reqId, ...payload }); }
+    catch(e){ pending.delete(reqId); throw e; }
   });
-  getWorker().postMessage(Object.assign({ reqId }, payload));
-  return promise;
-}
-
-// Fire-and-forget запрос (например, фоновая запись в кэш, где результат
-// никого не интересует) - резолвер пустой, но reqId всё равно нужен
-// воркеру, чтобы не потерять cache-write-error в общем onmessage.
-export function requestFireAndForget(payload){
-  const reqId = nextReqId();
-  pending.set(reqId, { resolve(){}, onProgress: null });
-  try{
-    getWorker().postMessage(Object.assign({ reqId }, payload));
-  }catch(e){
-    pending.delete(reqId);
-    throw e;
-  }
 }

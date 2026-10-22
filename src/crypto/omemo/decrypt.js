@@ -1,17 +1,16 @@
 // ===================== crypto/omemo/decrypt.js =====================
 // Расшифровка входящего OMEMO-сообщения (только omemo:2).
 import { NS_OMEMO } from '../../core/constants.js';
-import { bytes as B } from '../bytes.js';
-import { omemo } from './state.js';
-import { debugLog } from '../../core/debug-log.js';
+import { debugLog, errMsg } from '../../core/debug-log.js';
 import { t } from '../../i18n/t.js';
+import * as B from '../bytes.js';
+
+import { omemo } from './state.js';
 
 Object.assign(omemo, {
   // ---------- расшифровка входящего сообщения ----------
-  async decryptStanza(stanza){
-    // Сбрасываем флаг предыдущей попытки - иначе, если ЭТА расшифровка
-    // пройдёт успешно, incoming.js мог бы ошибочно показать toast от
-    // прошлого, уже неактуального провала (см. lastDecryptFailReason ниже).
+  async decryptStanza(stanza, retried = false){
+    // Сбрасываем флаг прошлой попытки, чтобы incoming.js не показал toast по устаревшему провалу (см. lastDecryptFailReason).
     this.lastDecryptFailReason = null;
     const encEl = stanza.querySelector('encrypted');
     if(!encEl) return null;
@@ -25,8 +24,7 @@ Object.assign(omemo, {
     const sid = parseInt(header.getAttribute('sid'), 10);
     const fromBare = Strophe.getBareJidFromJid(stanza.getAttribute('from'));
     this._learnIncomingDevice(fromBare, sid);
-    // <keys jid="..."><key rid=.../></keys> - берём только группу, адресованную нам
-    // (моему bare jid), внутри неё ищем ключ для нашего deviceId.
+    // <keys jid="..."><key rid=.../></keys>: берём группу для нашего bare jid и в ней ключ для нашего deviceId.
     const myKeysGroup = Array.from(header.querySelectorAll('keys')).find(k => k.getAttribute('jid') === this.myBareJid);
     const keyEls = myKeysGroup ? Array.from(myKeysGroup.querySelectorAll('key')) : [];
     const myKeyEl = keyEls.find(k => parseInt(k.getAttribute('rid'),10) === this.deviceId);
@@ -38,35 +36,34 @@ Object.assign(omemo, {
     const isPreKey = myKeyEl.getAttribute('kex') === 'true';
     const address = new libsignal.SignalProtocolAddress(fromBare, sid);
     const cipher = new libsignal.SessionCipher(this.store, address);
-    const encBytes = new Uint8Array(B.bufFromB64(myKeyEl.textContent));
-    const binStr = this._bytesToBinStr(encBytes);
+    const binStr = atob(myKeyEl.textContent); // бинарная строка: char-code 0-255 = байт
 
     let keyTagBuf;
     try{
       keyTagBuf = isPreKey
-        // ВАЖНО: обязательно указывать encoding='binary'. Если не указать,
-        // ByteBuffer.wrap внутри decrypt*WhisperMessage по умолчанию трактует
-        // строку как UTF-8, а наш binStr - это "бинарная строка" (каждый
-        // char-code 0-255 = один сырой байт). Начиная с первого же байта
-        // >= 0x80 UTF-8-декодер коверкает байты, и дальше все смещения полей
-        // в протобафе съезжают.
+        // Обязателен encoding='binary': иначе ByteBuffer.wrap трактует строку как UTF-8
+        // и на байтах >= 0x80 ломает смещения protobuf.
         ? await cipher.decryptPreKeyWhisperMessage(binStr, 'binary')
         : await cipher.decryptWhisperMessage(binStr, 'binary');
     }catch(e){
       console.warn('OMEMO: ошибка расшифровки ключа сообщения', e);
-      debugLog('decrypt FAIL (prekey=' + isPreKey + '): ' + (e && e.message ? e.message : e));
-      // Частный случай, а не просто "сессия повреждена": libsignal бросает
-      // 'Unknown identity key' конкретно тогда, когда наша isTrustedIdentity
-      // (crypto/identity-store.js) вернула false - а она это делает ровно
-      // тогда, когда для контакта уже занято максимум слотов запоминаемых
-      // устройств и это устройство ушло в очередь pendingSlotKey (см. там же).
-      // Отличаем этот случай явно - иначе пользователь видит невнятное
-      // "сессия повреждена", хотя реальная причина в том, что ОН САМ должен
-      // принять решение в OMEMO-меню (заменить/удалить одно из устройств),
-      // и молча ждать нечего - новая сессия сама не появится.
+      debugLog('decrypt FAIL (prekey=' + isPreKey + '): ' + errMsg(e));
+      // libsignal бросает 'Unknown identity key', когда isTrustedIdentity вернула false:
+      // у контакта заняты все слоты устройств, устройство в очереди pendingSlotKey.
+      // Отличаем явно: нужно решение пользователя в OMEMO-меню, сама сессия не появится.
       const addr = address.toString();
-      const pendingHere = await this.store.identity.listPendingSlotDevices(fromBare);
+      const pendingHere = await this.store.listPendingSlotDevices(fromBare);
       if(pendingHere.some(p => p.identifier === addr)){
+        if(!retried){
+          await this.getDeviceList(fromBare, true);
+          const orphans = (await this.orphanedFingerprints(fromBare)).filter(o => !o.verified);
+          if(orphans.length){
+            for(const o of orphans) await this.forgetDevice(o.addr);
+            await this.store.resolvePendingSlot(addr);
+            debugLog('decrypt: освобождено слотов ' + orphans.length + ' у ' + fromBare + ', повторяю расшифровку');
+            return this.decryptStanza(stanza, true);
+          }
+        }
         this.lastDecryptFailReason = 'pending-device';
         this.lastDecryptFailBareJid = fromBare;
         return t('omemo.pendingDeviceMessage');
@@ -75,74 +72,43 @@ Object.assign(omemo, {
       return t('omemo.sessionBroken');
     }
     if(isPreKey){
-      // isPreKey=true - собеседник прислал НОВОЕ key-exchange-сообщение,
-      // т.е. устройство только что "запросилось само" заново (см.
-      // crypto/identity-store.js:setPendingReverify) - если оно до этого
-      // было скрыто из списка отпечатков из-за смены ключа, самое время
-      // вернуть его обратно, чтобы можно было сверить и отметить проверенным.
+      // isPreKey=true: устройство запросилось заново (identity-store.js:setPendingReverify) -
+      // возвращаем в список отпечатков, если оно было скрыто из-за смены ключа.
       await this.store.clearPendingReverify(address.toString());
-      // Только что израсходован один одноразовый prekey (libsignal сам удалил
-      // его из хранилища внутри decryptPreKeyWhisperMessage выше) - не ждём
-      // следующего login/init(), проверяем остаток сразу и, если он упал
-      // ниже порога, догоняем и перепубликовываем bundle (см.
-      // omemo/state.js:replenishPreKeysIfNeeded, почему это важно - иначе
-      // запас одноразовых prekeys можно исчерпать целенаправленно).
+      // libsignal удалил использованный одноразовый prekey - сразу проверяем остаток и при падении
+      // ниже порога пополняем и перепубликуем bundle (omemo/state.js:replenishPreKeysIfNeeded),
+      // иначе запас можно исчерпать целенаправленно.
       this.replenishPreKeysIfNeeded()
-        .then(replenished => { if(replenished) return this._publishBundle(); })
-        .catch(e => debugLog('OMEMO: пополнение prekeys после decrypt упало: ' + (e && e.message ? e.message : e)));
+        .then(replenished => { if(replenished) return this._publishBundleCoalesced(); })
+        .catch(e => debugLog('OMEMO: пополнение prekeys после decrypt упало: ' + errMsg(e)));
     }
 
     const keyTag = new Uint8Array(keyTagBuf);
 
     const payloadEl = encEl.querySelector('payload');
     if(!payloadEl){
-      // OMEMO Key Transport / "пустое" сообщение - используется только для
-      // управления сессией (например, автоответ на key exchange), текста нет.
+      // OMEMO Key Transport / пустое сообщение: только управление сессией (напр. автоответ на key exchange), текста нет.
       return null;
     }
     const contentKey = keyTag.slice(0, 32);
     const macTrunc = keyTag.slice(32, 48);
     const ciphertext = new Uint8Array(B.bufFromB64(payloadEl.textContent));
     try{
-      const hk = await B.hkdfSha256(contentKey, new Uint8Array(32), 'OMEMO Payload', 80);
-      const encKey = hk.slice(0, 32);
-      const authKey = hk.slice(32, 64);
-      const cbcIv = hk.slice(64, 80);
+      const { encKey, authKey, iv: cbcIv } = await B.omemoPayloadKeys(contentKey);
 
       const macFull = await B.hmacSha256(authKey, ciphertext);
       const macCheck = macFull.slice(0, 16);
-      // Constant-time сравнение: НЕ выходим из цикла раньше времени по первому
-      // несовпадению байта - ранний break создаёт тайминг-канал, по которому
-      // теоретически можно подбирать/различать валидность тега побайтово.
-      let diff = macCheck.length ^ macTrunc.length;
-      const len = Math.max(macCheck.length, macTrunc.length);
-      for(let i = 0; i < len; i++){
-        const a = i < macCheck.length ? macCheck[i] : 0;
-        const b = i < macTrunc.length ? macTrunc[i] : 0;
-        diff |= (a ^ b);
-      }
-      if(diff !== 0){
+      if(!B.timingSafeEqual(macCheck, macTrunc)){
         debugLog('OMEMO v2: HMAC-SHA-256 payload не совпал - сообщение повреждено или подделано, отбрасываю.');
         return t('omemo.integrityFailed');
       }
 
-      const envelopeBytes = await B.aesCbcDecrypt(encKey, cbcIv, ciphertext);
+      const envelopeBytes = await B.aesCbc('decrypt', encKey, cbcIv, ciphertext);
       return this._parseSceEnvelope(envelopeBytes, fromBare);
     }catch(e){
       console.warn('OMEMO: ошибка расшифровки v2 payload (HKDF/AES-CBC/HMAC/SCE)', e);
-      debugLog('v2 payload decrypt FAIL: ' + (e && e.message ? e.message : e));
+      debugLog('v2 payload decrypt FAIL: ' + errMsg(e));
       return t('omemo.decryptFailed');
     }
-  },
-
-  _binStrToBytes(binStr){
-    const arr = new Uint8Array(binStr.length);
-    for(let i=0;i<binStr.length;i++) arr[i] = binStr.charCodeAt(i) & 0xff;
-    return arr;
-  },
-  _bytesToBinStr(bytes){
-    let s = '';
-    for(let i=0;i<bytes.length;i++) s += String.fromCharCode(bytes[i]);
-    return s;
   },
 });

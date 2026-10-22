@@ -1,16 +1,5 @@
 /* ---------- APP SHELL ---------- */
-/* height:100vh на мобильных браузерах НЕ уменьшается, когда открывается
-   экранная клавиатура (это старое поведение layout viewport в Safari/Chrome
-   на телефонах) - #app остаётся прежней высоты, клавиатура просто перекрывает
-   собой нижнюю часть экрана, включая последние сообщения и часть композера.
-   #messages при этом честно скроллится в свой "низ" (scrollHeight), но этот
-   низ уже физически скрыт под клавиатурой - визуально это выглядит так,
-   будто новое сообщение "осталось выше", а не появилось внизу.
-   100dvh (динамическая высота viewport) решает это в современных браузерах
-   нативно; JS-фолбэк (--app-vh, см. features/viewport.js) - для WebView без
-   поддержки dvh, через window.visualViewport. Порядок объявлений важен:
-   каждое следующее переопределяет предыдущее в браузерах, которые его
-   понимают, но не ломает поведение в тех, что не понимают. */
+/* 100vh на мобильных не уменьшается при открытии клавиатуры - низ #messages скрыт под ней. 100dvh решает нативно; --app-vh (features/viewport.js, visualViewport) - фолбэк для WebView без dvh. Порядок объявлений важен. */
 #app{ display:none; height:100vh; height:100dvh; height:var(--app-vh, 100dvh); }
 #app.active{ display:flex; }
 
@@ -29,24 +18,21 @@
   background:var(--paper); color:var(--ink); flex-shrink:0;
   font-family:inherit; outline:none;
 }
-@media (hover: hover) and (pointer: fine){ .my-avatar-btn:hover{ border-color:var(--accent, var(--ink)); } }
 .sidebar-title{ font-size:1.375rem; font-weight:800; letter-spacing:-.02em; }
 .sidebar-actions{ display:flex; align-items:center; gap:10px; }
 .icon-mini{
-  width:26px; height:26px; border:1px solid var(--ink-20); background:none; color:var(--ink-60);
+  width:26px; height:26px; border:1px solid var(--ink); background:none; color:var(--ink);
   display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:0.8125rem;
   border-radius:var(--r-round);
 }
-@media (hover: hover) and (pointer: fine){ .icon-mini:hover{ border-color:var(--ink); color:var(--ink); } }
 .logout-btn{
   font-family:'IBM Plex Mono',monospace; font-size:0.6562rem; text-transform:uppercase;
-  letter-spacing:.08em; color:var(--ink-40); background:none; cursor:pointer;
-  border:1px solid var(--ink-20); padding:6px 12px; border-radius:var(--r-round);
+  letter-spacing:.08em; color:var(--ink); background:none; cursor:pointer;
+  border:1px solid var(--ink); padding:6px 12px; border-radius:var(--r-round);
 }
-@media (hover: hover) and (pointer: fine){ .logout-btn:hover{ border-color:var(--warn); color:var(--warn); } }
-.search-wrap{ padding:12px 20px; border-bottom:1px solid var(--ink-10); }
+.search-wrap{ padding:12px 20px; border-bottom:1px solid var(--ink); }
 .search-wrap input{
-  width:100%; border:1.5px solid var(--ink-10); padding:10px 16px; font-size:0.875rem;
+  width:100%; border:1px solid var(--ink); padding:10px 16px; font-size:0.875rem;
   font-family:'Inter',sans-serif; outline:none; background:var(--paper);
   border-radius:var(--r-round);
 }
@@ -56,7 +42,6 @@
   display:flex; align-items:center; gap:12px; padding:11px 12px; cursor:pointer;
   border-radius:var(--r-md); position:relative;
 }
-@media (hover: hover) and (pointer: fine){ .roster-item:hover{ background:var(--ink-05); } }
 .avatar{
   width:42px; height:42px; border-radius:50%; border:0.75px solid var(--ink);
   display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.9375rem;
@@ -67,25 +52,23 @@
 .roster-name{ font-weight:600; font-size:0.9062rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; align-items:center; gap:6px; }
 .roster-name svg.icon-svg{ width:13px; height:13px; flex-shrink:0; }
 .roster-sub{
-  font-size:0.75rem; color:var(--ink-40); font-family:'IBM Plex Mono',monospace;
+  font-size:0.75rem; font-family:'IBM Plex Mono',monospace;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px;
 }
-.presence-dot{ width:9px; height:9px; border-radius:50%; border:2px solid var(--paper); position:absolute; left:42px; top:32px; background:#000; }
-.presence-dot.online{ background:var(--ok); }
+.presence-dot{ width:9px; height:9px; border-radius:50%; border:2px solid var(--paper); position:absolute; left:42px; top:32px; background:var(--paper); outline:1px solid var(--ink); }
+.presence-dot.online{ background:var(--ink); }
 
-/* Счётчик непрочитанных сообщений - показывается справа от последней строки,
-   когда в S.messages[jid] есть входящие с read:false (см. ui/roster.js). */
+/* Счётчик непрочитанных справа от последней строки (S.messages[jid], read:false; ui/roster.js). */
 .roster-unread{
-  min-width:19px; height:19px; padding:0 6px; border-radius:var(--r-round); background:var(--warn);
+  min-width:19px; height:19px; padding:0 6px; border-radius:var(--r-round); background:var(--ink);
   color:var(--paper); font-size:0.6875rem; font-weight:700; display:flex; align-items:center; justify-content:center;
   flex-shrink:0; font-family:'IBM Plex Mono',monospace;
 }
-.roster-empty{ padding:40px 24px; color:var(--ink-40); font-size:0.8125rem; font-family:'IBM Plex Mono',monospace; line-height:1.6; }
+.roster-empty{ padding:40px 24px; font-size:0.8125rem; font-family:'IBM Plex Mono',monospace; line-height:1.6; }
 
 .add-contact{
-  margin:6px 12px 12px; border:1.5px solid var(--ink-20); border-radius:var(--r-md); padding:13px 16px; cursor:pointer;
+  margin:6px 12px 12px; border:1px solid var(--ink); border-radius:var(--r-md); padding:13px 16px; cursor:pointer;
   font-family:'IBM Plex Mono',monospace; font-size:0.75rem; text-transform:uppercase;
-  letter-spacing:.08em; display:flex; align-items:center; gap:8px; color:var(--ink-60);
+  letter-spacing:.08em; display:flex; align-items:center; gap:8px; color:var(--ink);
 }
-@media (hover: hover) and (pointer: fine){ .add-contact:hover{ color:var(--ink); border-color:var(--ink); } }
 .add-contact .plus{ font-size:1rem; font-weight:700; }

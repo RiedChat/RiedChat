@@ -1,43 +1,37 @@
 // ======= features/message-edit/click-triggers.js =======
-// Два обычных клика подряд (двойной тап без второго пальца) и клик
-// колёсиком мыши (средняя кнопка) по сообщению - тоже запускают
-// редактирование.
-import { msgByRow, startEdit, DOUBLE_TAP_MS } from './core.js';
-import { swipeConfig } from '../../ui/swipe-config.js';
+// Два клика подряд и клик средней кнопкой по сообщению тоже запускают редактирование.
+import { rowOf, isInteractive } from '../message-select/dom.js';
+
+import { startEditForRow, DOUBLE_TAP_MS } from './core.js';
+
+// Клик по ссылке/кнопке/цитате внутри сообщения - не жест редактирования.
+const isEditBlocked = (e) => isInteractive(e, '.quote-block');
 
 export function wireClickTriggers(el){
   let lastTapRow = null;
   let lastTapTime = 0;
 
   el.addEventListener('click', (e) => {
-    if(e.target.closest && e.target.closest(swipeConfig.INTERACTIVE_SEL + ', .quote-block')) return;
-    const row = e.target.closest('.msg-row');
+    if(isEditBlocked(e)) return;
+    const row = rowOf(e);
     if(!row) return;
     const now = Date.now();
     const isSecondTap = row === lastTapRow && (now - lastTapTime) <= DOUBLE_TAP_MS;
     lastTapRow = row;
-    // Сброс времени после срабатывания - иначе третий тап подряд сразу же
-    // засчитался бы вместе со вторым ещё раз (в пределах того же окна).
+    // Сброс времени после срабатывания, чтобы третий тап не засчитался со вторым.
     lastTapTime = isSecondTap ? 0 : now;
     if(!isSecondTap) return;
 
-    const msg = msgByRow(row);
-    const bubble = row.querySelector('.bubble');
-    if(!msg || !bubble) return;
-    startEdit(msg, bubble);
+    startEditForRow(row);
   });
 
-  // Клик колёсиком мыши (средняя кнопка) - событие 'auxclick', а не 'click':
-  // браузеры не генерируют обычный click для средней кнопки мыши.
+  // Средняя кнопка даёт "auxclick", а не "click".
   el.addEventListener('auxclick', (e) => {
     if(e.button !== 1) return;
-    if(e.target.closest && e.target.closest(swipeConfig.INTERACTIVE_SEL + ', .quote-block')) return;
-    const row = e.target.closest('.msg-row');
+    if(isEditBlocked(e)) return;
+    const row = rowOf(e);
     if(!row) return;
-    e.preventDefault(); // не даём браузеру открыть автопрокрутку по средней кнопке
-    const msg = msgByRow(row);
-    const bubble = row.querySelector('.bubble');
-    if(!msg || !bubble) return;
-    startEdit(msg, bubble);
+    e.preventDefault(); // без автопрокрутки по средней кнопке
+    startEditForRow(row);
   });
 }

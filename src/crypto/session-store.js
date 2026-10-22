@@ -1,31 +1,16 @@
 // ===================== crypto/session-store.js =====================
-// Signal-сессии по устройствам собеседников + произвольный meta-кэш
-// уровня приложения (используется поверх того же namespace, например
-// omemo/state.js для служебных пометок).
-
-export class SessionStore{
-  constructor(idb, ns){
-    this.idb = idb;
-    this.ns = ns; // 'omemo:' + bareJid + ':'
-  }
-
+// Signal-сессии устройств собеседников + app-level meta-кэш (напр. для omemo/state.js).
+export const sessionMethods = {
   // ---- sessions ----
-  async loadSession(identifier){
-    const v = await this.idb.get(this.ns + 'session:' + identifier);
-    return v || undefined;
-  }
-  async storeSession(identifier, record){
-    await this.idb.set(this.ns + 'session:' + identifier, record);
-  }
-  async removeSession(identifier){
-    await this.idb.del(this.ns + 'session:' + identifier);
-  }
+  loadSession(identifier){ return this._get('session', identifier).then(v => v || undefined); },
+  storeSession(identifier, record){ return this._set('session', identifier, record); },
+  removeSession(identifier){ return this._del('session', identifier); },
   async removeAllSessions(identifier){
-    const keys = await this.idb.keys(this.ns + 'session:' + identifier);
+    const keys = await this.idb.keys(this._k('session', identifier));
     for(const k of keys) await this.idb.del(k);
-  }
+  },
 
   // ---- misc app-level cache ----
-  async setMeta(key, val){ await this.idb.set(this.ns + 'meta:' + key, val); }
-  async getMeta(key){ return await this.idb.get(this.ns + 'meta:' + key); }
-}
+  setMeta(key, val){ return this._set('meta', key, val); },
+  getMeta(key){ return this._get('meta', key); },
+};

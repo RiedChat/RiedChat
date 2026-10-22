@@ -1,12 +1,9 @@
 // ===================== features/call/mirror-track.js =====================
-// Зеркалит исходящий видеотрек по горизонтали через canvas.captureStream().
-// CSS-класс .mirrored в call.css разворачивает только локальное превью -
-// на то, что реально уходит по RTCPeerConnection, он не влияет, поэтому
-// собеседник видел движения зеркально перевёрнутыми относительно того, что
-// пользователь видит у себя (повернул голову влево на своём экране -
-// собеседник видит поворот вправо). Этот модуль зеркалит сам исходящий
-// трек, рисуя кадры с камеры в скрытый canvas с scale(-1,1) и отдавая
-// видеотрек с этого canvas вместо исходного трека камеры.
+// Зеркалит исходящий видеотрек по горизонтали через canvas.captureStream(). Класс .mirrored в call.css разворачивает только локальное превью,
+// поэтому собеседник видел движения зеркально. Модуль рисует кадры камеры в скрытый canvas со scale(-1,1) и отдаёт его видеотрек вместо исходного.
+import { playQuietly } from '../../core/dom-utils.js';
+import { makeCanvas } from '../../core/image-utils.js';
+
 export function createMirroredVideoTrack(sourceTrack){
   const settings = sourceTrack.getSettings ? sourceTrack.getSettings() : {};
 
@@ -14,11 +11,9 @@ export function createMirroredVideoTrack(sourceTrack){
   video.muted = true;
   video.playsInline = true;
   video.srcObject = new MediaStream([sourceTrack]);
-  video.play().catch(() => {});
+  playQuietly(video);
 
-  const canvas = document.createElement('canvas');
-  canvas.width = settings.width || 1280;
-  canvas.height = settings.height || 720;
+  const canvas = makeCanvas(settings.width || 1280, settings.height || 720);
   const ctx = canvas.getContext('2d');
 
   video.addEventListener('loadedmetadata', () => {
@@ -45,11 +40,10 @@ export function createMirroredVideoTrack(sourceTrack){
   function stop(){
     if(rafHandle) cancelAnimationFrame(rafHandle);
     rafHandle = null;
-    try{ mirroredTrack.stop(); }catch(e){}
+    try{ mirroredTrack.stop(); }catch{}
     video.srcObject = null;
   }
-  // Если исходный трек камеры остановлен снаружи (смена камеры, hangup) -
-  // глушим цикл рисования вместе с ним, а не рисуем застывший кадр вхолостую.
+  // Исходный трек остановлен снаружи (смена камеры, hangup) - глушим цикл рисования, а не рисуем застывший кадр.
   sourceTrack.addEventListener('ended', stop);
 
   return { track: mirroredTrack, stop };

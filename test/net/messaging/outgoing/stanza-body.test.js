@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('../../../../src/i18n/t.js', () => ({ t: (key) => key }));
+
 import { appendStanzaBody } from '../../../../src/net/messaging/outgoing/stanza-body.js';
 
-// Минимальный мок Strophe.Builder: фиксирует вызовы .c()/.cnode()/.t()/.up()
-// в плоский лог, .up() возвращает тот же объект (чейнинг как у Strophe).
+// Мини-мок Strophe.Builder: пишет вызовы .c()/.cnode()/.t()/.up() в плоский лог, .up() возвращает тот же объект.
 function fakeBuilder(){
   const calls = [];
   const node = {
@@ -15,26 +17,15 @@ function fakeBuilder(){
 }
 
 describe('appendStanzaBody', () => {
-  it('незашифрованное сообщение: пишет открытый body, markable, encrypted=false', () => {
-    const { node, calls } = fakeBuilder();
-    const encrypted = appendStanzaBody(node, null, 'привет');
-
-    expect(encrypted).toBe(false);
-    expect(calls).toContainEqual(['c', 'body', undefined]);
-    expect(calls).toContainEqual(['t', 'привет']);
-    expect(calls.some(c => c[0] === 'c' && c[1] === 'markable')).toBe(true);
-    expect(calls.some(c => c[0] === 'cnode')).toBe(false);
-  });
-
-  it('зашифрованное сообщение: вставляет cnode(encryptedEl), body-плейсхолдер, store-hint, markable, encrypted=true', () => {
+  it('вставляет cnode(encryptedEl), body-плейсхолдер, store-hint и markable', () => {
     const { node, calls } = fakeBuilder();
     const encryptedEl = { tagName: 'encrypted' };
-    const encrypted = appendStanzaBody(node, encryptedEl, 'игнорируется');
+    appendStanzaBody(node, encryptedEl);
 
-    expect(encrypted).toBe(true);
     expect(calls).toContainEqual(['cnode', encryptedEl]);
+    expect(calls).toContainEqual(['c', 'body', undefined]);
+    expect(calls.some(c => c[0] === 't' && c[1] === 'messaging.omemoPlaceholder')).toBe(true);
     expect(calls.some(c => c[0] === 'c' && c[1] === 'store')).toBe(true);
-    expect(calls.some(c => c[0] === 't' && c[1] === 'игнорируется')).toBe(false);
     expect(calls.some(c => c[0] === 'c' && c[1] === 'markable')).toBe(true);
   });
 });

@@ -1,128 +1,91 @@
 // ============ ui/chat-view/media-loader/encrypted-media.js ============
-// Скачивает и расшифровывает файл по aesgcm:// ссылке, затем подменяет
-// плейсхолдер на <img>/<video>/<audio> с blob-URL (или ссылку-фолбэк при ошибке).
-import { $ } from '../../../core/dom-utils.js';
-import { html, setHTML } from '../../../core/safe-html.js';
+// Скачивает и расшифровывает aesgcm://, подменяет плейсхолдер на <img>/<video>/<audio> с blob-URL (или ссылкой-фолбэком при ошибке).
+import { $, isNearBottom, scrollToBottom } from '../../../core/dom-utils.js';
+import { icon } from '../../../core/icons.js';
+import { html, raw, setHTML } from '../../../core/safe-html.js';
 import { t } from '../../../i18n/t.js';
-import { media } from '../../../net/media.js';
+import { fileNameOf } from '../../../net/media/mime-kind.js';
 import { mountVoicePlayer } from '../../voice-player/mount.js';
-import { setPreviewPoster } from '../video-poster.js';
+import { videoBoxClass, imageLinkHtml, loadingHtml, loadingPercentText, GLYPH_LOADING, BLANK_LINK_ATTRS } from '../media-placeholder.js';
+import { mediaTraits } from '../media-traits.js';
+import { applyVideoPoster } from '../video-poster/index.js';
 
-export async function loadEncryptedMedia(placeholderId, aesgcmUrl, senderJid){
-      const messagesEl = $('messages');
-      // Запоминаем ДО скачивания/расшифровки: если пользователь был внизу
-      // списка в момент, когда появился плейсхолдер "⏳ загрузка медиа…",
-      // то после того, как плейсхолдер заменится на реальное фото/видео
-      // (обычно куда выше по высоте), нужно снова прижать список к низу -
-      // иначе высота пузыря вырастает уже ПОСЛЕ того, как renderMessages()
-      // один раз проскроллил вниз, и низ списка визуально "уезжает" вверх
-      // относительно видимой области.
-      const wasNearBottom = messagesEl &&
-        (messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight) <= 48;
+import { deferUntilTap, decryptInto } from './defer-until-tap.js';
 
-      const updateProgressText = (pct) => {
-        const host = document.getElementById(placeholderId);
-        if(!host) return; // сообщение уже перерисовано/удалено - обновлять нечего
-        const loadingSpan = host.querySelector('.media-loading');
-        if(loadingSpan) loadingSpan.textContent = '⏳ ' + t('media.loadingPercent', {percent: pct});
-      };
-      const entry = await media.decrypt(aesgcmUrl, updateProgressText, senderJid);
-      const host = document.getElementById(placeholderId);
-      if(!host) return; // сообщение уже перерисовано/удалено
-      const isMediaOnly = host.classList.contains('media-frame');
-      // data-kind/data-download-* на .bubble нужны свайп-обработчику (features/message-swipe.js),
-      // чтобы решить, копировать текст или скачивать файл. Ставим их ТОЛЬКО для
-      // "целиком-медиа" сообщений (isMediaOnly) - для картинки/файла, вложенных
-      // посреди обычного текста, свайп должен по-прежнему копировать текст сообщения.
-      const bubble = isMediaOnly ? host.closest('.bubble') : null;
+const GUESSED_EXT = { image: '.jpg', video: '.mp4', audio: '.mp3' };
 
-      // См. комментарий в начале функции: если пользователь был внизу списка
-      // ДО подмены плейсхолдера на реальный контент - прижимаем список к низу
-      // ещё раз ПОСЛЕ подмены (в двух кадрах - второй нужен фото/видео, чьи
-      // реальные intrinsic-размеры браузер применяет к layout не мгновенно).
-      const rescrollIfWasAtBottom = () => {
-        if(!wasNearBottom || !messagesEl) return;
-        requestAnimationFrame(() => {
-          messagesEl.scrollTop = messagesEl.scrollHeight;
-          requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
-        });
-      };
+// Прижимаем список к низу в двух кадрах: второй нужен фото/видео, чьи размеры применяются к layout не сразу.
+function rescrollToBottom(messagesEl){
+  requestAnimationFrame(() => {
+    scrollToBottom(messagesEl);
+    requestAnimationFrame(() => scrollToBottom(messagesEl));
+  });
+}
 
-      if(entry.status === 'error'){
-        if(isMediaOnly) host.style.padding = '20px 16px'; // такому фолбэку уже нужны свои отступы
-        setHTML(host, html`<a href="${aesgcmUrl}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#paper-clip"></use></svg> ${t('media.decryptFailed')}</a>`);
-        if(bubble){ bubble.dataset.kind = 'text'; delete bubble.dataset.downloadUrl; delete bubble.dataset.downloadName; }
-        rescrollIfWasAtBottom();
-        return;
-      }
-      const {blobUrl, kind} = entry;
-      // Настоящее имя файла - из самой ссылки (media.fileNameOf уже режет
-      // query/#-хвост с ключом), а не из blob-URL (тот - случайный
-      // internal-идентификатор вида blob:https://.../<uuid>, без него и
-      // download, и превью показывали бы "зашифрованное" имя вместо
-      // исходного document.pdf/app.apk и т.п.).
-      const guessedExt = kind === 'image' ? '.jpg' : kind === 'video' ? '.mp4' : kind === 'audio' ? '.mp3' : '';
-      const rawName = media.fileNameOf(aesgcmUrl);
-      const downloadName = rawName || (kind + guessedExt);
-      if(bubble){
-        bubble.dataset.kind = kind;
-        bubble.dataset.downloadUrl = blobUrl;
-        bubble.dataset.downloadName = downloadName;
-      }
-      if(kind === 'image'){
-        setHTML(host, html`<a href="${blobUrl}" target="_blank" rel="noopener"><img src="${blobUrl}"></a>`);
-      } else if(kind === 'video'){
-        // Кружок (features/video-note.js) - круглый плеер без рамки 16:9, но
-        // с той же кнопкой "на весь экран", что и у обычного видео ниже
-        // (.media-expand-btn, см. modals.css/media-viewer.js). Определяем по
-        // самой ссылке (media.isVideoNote), а не по классу .bubble.video-note -
-        // тот класс есть только у "чистого" медиа-сообщения (см. renderMediaOnlyBubble
-        // в bubble-renderers.js); у кружка, отправленного вместе с цитатой,
-        // сообщение рендерится обычным текстовым пузырём без этого класса
-        // (bubble здесь вообще null, см. isMediaOnly выше), и раньше такой
-        // кружок терял круглую форму, растягиваясь в обычную 16:9-рамку.
-        const isNoteVideo = media.isVideoNote(aesgcmUrl);
-        if(isNoteVideo){
-          setHTML(host, html`<div class="video-note-box"><video src="${blobUrl}" controls preload="auto" playsinline loop></video><button type="button" class="media-expand-btn" title="${t('media.openFullscreen')}"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#expand"></use></svg></button></div>`);
-        } else {
-          // Рамка всегда строго 16:9 через классический padding-top hack (а не CSS aspect-ratio,
-          // который может не поддерживаться в старых WebView) - видео заполняет её целиком
-          // через object-fit:cover, без чёрных/белых полос независимо от реальных пропорций исходника.
-          // preload="auto", а не "metadata": видео тут всегда blob-URL уже полностью
-          // скачанного и расшифрованного в памяти файла - экономить трафик прогрессивной
-          // подгрузкой нечего, а "metadata" во многих браузерах не декодирует вообще
-          // никакого кадра, пока не нажат Play (пустой/чёрный прямоугольник до захвата
-          // постера, а если сам захват по любой причине не сработает - так и остаётся).
-          setHTML(host, html`<div class="video-ratio-box"><video src="${blobUrl}" controls preload="auto" playsinline></video><button type="button" class="media-expand-btn" title="${t('media.openFullscreen')}"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#expand"></use></svg></button></div>`);
-        }
-        const videoEl = host.querySelector('video');
-        // ПРЕВЬЮ: сначала пробуем то, что отправитель встроил прямо в
-        // ссылку (см. net/media/thumb-codec.js/net/upload.js) - кадр,
-        // снятый ОДИН РАЗ на стороне отправителя из ещё не зашифрованного
-        // оригинала (для кружков - прямо с канваса живой записи, см.
-        // features/video-note/recording-stop.js). Это надёжно всегда,
-        // включая кружки: MediaRecorder не пишет индекс кадров (Cues) в
-        // webm, поэтому перемотка/захват кадра ПОСТФАКТУМ, из уже
-        // скачанного и расшифрованного файла, на части браузеров (особенно
-        // Safari/iOS) не срабатывает вовсе - см. video-poster/index.js.
-        // setPreviewPoster (постфактумный захват) остаётся только как
-        // fallback - для сообщений, отправленных до этой функции, или от
-        // другого XMPP-клиента без поддержки встроенного превью.
-        if(videoEl){
-          const embeddedThumb = media.extractThumbDataUrl(aesgcmUrl);
-          if(embeddedThumb) videoEl.poster = embeddedThumb;
-          else setPreviewPoster(videoEl, {skipSeek: isNoteVideo});
-        }
-      } else if(kind === 'audio'){
-        mountVoicePlayer(host, blobUrl);
-      } else {
-        if(isMediaOnly) host.style.padding = '14px 16px';
-        // download="${downloadName}" - без значения атрибута браузер вместо
-        // исходного имени файла подставляет случайный blob-идентификатор
-        // (см. комментарий выше про rawName/downloadName), и скачивался файл
-        // без имени/расширения. Тут же показываем то же имя в самом
-        // превью-линке, а не только общую надпись "Скачать файл".
-        setHTML(host, html`<a href="${blobUrl}" target="_blank" rel="noopener" download="${downloadName}" class="file-download-link"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke="currentColor" class="icon-svg"><use href="#paper-clip"></use></svg> <span class="file-download-name">${downloadName}</span></a>`);
-      }
-      rescrollIfWasAtBottom();
+// Видео. Кружок - круглый плеер без рамки 16:9, с кнопкой «на весь экран» (.media-expand-btn). Определяем по ссылке (isVideoNote), а не по .bubble.video-note: кружок с цитатой рендерится текстовым пузырём.
+// Обычное видео - рамка 16:9 через padding-top (aspect-ratio не везде в старых WebView), object-fit:cover. preload="auto": файл уже скачан, а "metadata" во многих браузерах не декодирует кадр до Play.
+function renderVideo(host, blobUrl, aesgcmUrl){
+  const { isNote: isNoteVideo } = mediaTraits(aesgcmUrl, 'video');
+  setHTML(host, html`<div class="${videoBoxClass(isNoteVideo)}"><video src="${blobUrl}#t=0.001" controls preload="auto" playsinline${raw(isNoteVideo ? ' loop' : '')}></video><button type="button" class="media-expand-btn" title="${t('media.openFullscreen')}">${raw(icon('expand'))}</button></div>`);
+  // Превью: встроенное в ссылку (thumb-codec.js, upload.js; для кружков - с канваса записи, recording-stop.js). Без него браузер сам показывает кадр благодаря #t=0.001 в src.
+  applyVideoPoster(host.querySelector('video'), aesgcmUrl);
+}
+
+// Подмена плейсхолдера результатом (или фолбэком при ошибке).
+function renderDecrypted(host, entry, { aesgcmUrl, isMediaOnly, bubble }){
+  if(entry.status === 'error'){
+    if(isMediaOnly) host.classList.add('media-frame-error'); // фолбэку нужны свои отступы
+    setHTML(host, html`<a href="${aesgcmUrl}" ${BLANK_LINK_ATTRS}>${raw(icon('paper-clip'))} ${t('media.decryptFailed')}</a>`);
+    if(bubble){ bubble.dataset.kind = 'text'; delete bubble.dataset.downloadUrl; delete bubble.dataset.downloadName; }
+    return;
+  }
+  const { blobUrl, kind } = entry;
+  // Имя файла - из ссылки (fileNameOf режет хвост с ключом), а не из blob-URL.
+  const downloadName = fileNameOf(aesgcmUrl) || (kind + (GUESSED_EXT[kind] || ''));
+  if(bubble){
+    bubble.dataset.kind = kind;
+    bubble.dataset.downloadUrl = blobUrl;
+    bubble.dataset.downloadName = downloadName;
+  }
+  if(kind === 'image'){
+    setHTML(host, imageLinkHtml(blobUrl));
+  } else if(kind === 'video'){
+    renderVideo(host, blobUrl, aesgcmUrl);
+  } else if(kind === 'audio'){
+    mountVoicePlayer(host, blobUrl);
+  } else {
+    if(isMediaOnly) host.classList.add('media-frame-file');
+    // download="${downloadName}" обязателен: иначе браузер подставит blob-идентификатор. То же имя показываем в превью-ссылке.
+    setHTML(host, html`<a href="${blobUrl}" ${BLANK_LINK_ATTRS} download="${downloadName}" class="file-download-link">${raw(icon('paper-clip'))} <span class="file-download-name">${downloadName}</span></a>`);
+  }
+}
+
+async function loadEncryptedMedia(host, aesgcmUrl, senderJid){
+  const messagesEl = $('messages');
+  // Запоминаем до загрузки, был ли список внизу: после замены плейсхолдера на фото/видео высота пузыря растёт, и низ нужно прижать снова.
+  const wasNearBottom = messagesEl && isNearBottom(messagesEl);
+
+  const updateProgressText = (pct) => {
+    if(!host.isConnected) return; // сообщение перерисовано/удалено
+    const loadingSpan = host.querySelector('.media-loading');
+    if(loadingSpan) loadingSpan.textContent = GLYPH_LOADING + ' ' + loadingPercentText(pct);
+  };
+  const entry = await decryptInto(host, aesgcmUrl, updateProgressText, senderJid);
+  if(!entry) return; // сообщение перерисовано/удалено
+  const isMediaOnly = host.classList.contains('media-frame');
+  // data-kind/data-download-* нужны свайпу (message-swipe/wire.js): копировать текст или скачивать файл. Только для isMediaOnly; для вложения среди текста свайп копирует текст.
+  const bubble = isMediaOnly ? host.closest('.bubble') : null;
+
+  renderDecrypted(host, entry, { aesgcmUrl, isMediaOnly, bubble });
+  if(wasNearBottom) rescrollToBottom(messagesEl);
+}
+
+// Настройка «Не загружать видео автоматически» (features/profile/): для видео/аудио/файла вешаем клик вместо немедленной расшифровки. Уже скачанное (IndexedDB) deferUntilTap грузит сразу.
+export function loadDeferredMedia(host, aesgcmUrl, holdOff, senderJid){
+  deferUntilTap(host, {
+    holdOff,
+    cachedUrl: aesgcmUrl,
+    onTap: () => setHTML(host, loadingHtml(null, loadingPercentText(0))),
+    start: () => loadEncryptedMedia(host, aesgcmUrl, senderJid),
+  });
 }

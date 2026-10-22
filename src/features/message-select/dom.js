@@ -1,36 +1,37 @@
 // ============== features/message-select/dom.js ==============
-// Низкоуровневые операции с DOM: строка -> id сообщения, счётчик в панели,
-// проставление класса 'selected' на уже отрисованных строках.
+// Операции с DOM: событие -> строка сообщения, проверка интерактивного элемента, строка -> id, счётчик, класс "selected" на строках.
 import { $ } from '../../core/dom-utils.js';
-import { state } from '../../core/state.js';
+import { state, activeMessages } from '../../core/state.js';
 import { t } from '../../i18n/t.js';
+import { swipeConfig } from '../../ui/swipe-gesture.js';
 
-const S = state;
+// Строка сообщения (.msg-row), где произошло событие, или null.
+export const rowOf = (e) => e.target.closest?.('.msg-row') ?? null;
 
-export function msgIdByRow(row){
-  const list = S.messages[S.activeChat] || [];
-  const idx = Number(row.dataset.idx);
-  const m = Number.isInteger(idx) ? list[idx] : null;
-  return (m && m.id) || null;
+// Событие от интерактивного элемента (плеер/ссылка/кнопка) - жест не запускаем. extraSel - доп. селекторы через запятую, например ".quote-block".
+export const isInteractive = (e, extraSel) =>
+  !!e.target.closest?.([swipeConfig.INTERACTIVE_SEL, extraSel].filter(Boolean).join(', '));
+
+const rowMessage = (row) => activeMessages()[Number(row.dataset.idx)] ?? null;
+
+export const msgIdByRow = (row) => rowMessage(row)?.id || null;
+
+// В режиме выбора тап/свайп только выбирает строку (без правки и цитаты) - отдаём null.
+export function msgByRow(row){
+  return state.selecting ? null : rowMessage(row);
 }
 
 export function setBarCount(){
-  const count = S.selecting ? S.selecting.size : 0;
+  const count = state.selecting?.size ?? 0;
   const countEl = $('select-bar-count');
   const delBtn = $('select-bar-delete');
   if(countEl) countEl.textContent = t('select.countLabel', { count });
   if(delBtn) delBtn.disabled = count === 0;
 }
 
-// Пробегается по уже отрисованным строкам и проставляет класс 'selected'
-// по текущему содержимому S.selecting - используется и при обычном тапе
-// (точечно), и целиком после renderMessages() (см. onRenderMessages в
-// message-select/long-press.js).
+// Проставляет "selected" по state.selecting: при тапе (точечно) и после renderMessages() (onRenderMessages в message-select/long-press.js).
 export function applySelectionClasses(){
-  const el = $('messages');
-  if(!el) return;
-  el.querySelectorAll('.msg-row').forEach(row => {
-    const id = msgIdByRow(row);
-    row.classList.toggle('selected', !!(S.selecting && id && S.selecting.has(id)));
+  $('messages')?.querySelectorAll('.msg-row').forEach(row => {
+    row.classList.toggle('selected', !!state.selecting?.has(msgIdByRow(row)));
   });
 }

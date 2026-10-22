@@ -1,67 +1,39 @@
 // ===================== features/video-note/recording.js =====================
-// Круглые видео-сообщения ("кружки", как в Telegram): запуск записи с камеры
-// и микрофона через MediaRecorder в реальном времени, лимит 1 минута (по
-// истечении - автостоп через recording-controls.js/stopAndShowPreview).
+// Кружки (круглые видео-сообщения, как в Telegram): запись с камеры и микрофона через MediaRecorder, лимит 1 минута (автостоп через recording-stop.js/stopAndShowPreview).
+// Открывается КОРОТКИМ тапом по кнопке микрофона; долгое зажатие (>=1,5с) - голосовое (features/voice-recorder/recorder.js, разбор жеста - voice-recorder/gesture.js).
 //
-// Открывается КОРОТКИМ тапом по кнопке микрофона - в отличие от долгого
-// зажатия (≥3с), которое запускает обычную запись голосового сообщения
-// (см. features/voice-recorder.js, там же живёт разбор жеста нажатия).
+// Запись через canvas, а не напрямую с камеры: MediaRecorder привязан к MediaStreamTrack при создании, подмена видеотрека
+// на лету (переключение камеры, camera.js/switchCamera) не подхватывается. Камера рисуется в скрытый <canvas> (canvas.js/drawFrame, rAF),
+// пишется поток с canvas (captureStream); источник кадров меняется сменой srcObject у <video id="video-note-preview">,
+// треки рекордера не трогаются - запись не рвётся, в аудио нет паузы/склейки.
 //
-// ЗАПИСЬ ЧЕРЕЗ CANVAS, А НЕ НАПРЯМУЮ С КАМЕРЫ: MediaRecorder привязывается к
-// конкретным MediaStreamTrack-объектам в момент создания - подменить видеотрек
-// "на лету" (переключить камеру посреди записи, см. camera.js/switchCamera) у
-// уже запущенного рекордера нельзя, замена трека в исходном MediaStream
-// рекордер просто не подхватывает. Поэтому камера рисуется в скрытый
-// <canvas> (canvas.js/drawFrame, requestAnimationFrame), а пишется поток
-// С CANVAS (canvas.captureStream) - свапнуть источник кадров для канваса
-// можно в любой момент (drawFrame читает пиксели текущего
-// <video id="video-note-preview">, которому достаточно поменять srcObject),
-// и ни видео-, ни аудиотрек самого MediaRecorder при этом не трогаются -
-// переключение камеры не рвёт запись и не даёт паузы/склейки в аудио.
-//
-// Обработка остановки - в recording-stop.js (onRecorderStop), команды
-// управления (стоп/отмена) - в recording-controls.js.
-import { $, toast } from '../../core/dom-utils.js';
+// Остановка (onRecorderStop) и команды стоп/отмена - recording-stop.js.
+import { detectMultipleCameras } from '../../core/camera.js';
+import { $, toast, formatMmSs, playQuietly } from '../../core/dom-utils.js';
+import { makeCanvas } from '../../core/image-utils.js';
+import { getMedia, tryCreateRecorder } from '../../core/recorder.js';
 import { state } from '../../core/state.js';
-import { S, MAX_DURATION_MS, CANVAS_SIZE } from './state.js';
-import { drawFrame } from './canvas.js';
-import { detectMultipleCameras, stopStream } from './camera.js';
-import { fmtTime, showModal, showRecordingControls } from './ui.js';
-import { releasePreviewBlob } from './preview.js';
-import { onRecorderStop } from './recording-stop.js';
-import { stopAndShowPreview } from './recording-controls.js';
 import { t } from '../../i18n/t.js';
 
-export { stopAndShowPreview, cancelRecording } from './recording-controls.js';
+import { cameraConstraints, stopStream } from './camera.js';
+import { drawFrame } from './canvas.js';
+import { releasePreviewBlob } from './preview.js';
+import { onRecorderStop, stopAndShowPreview } from './recording-stop.js';
+import { S, MAX_DURATION_MS, CANVAS_SIZE } from './state.js';
+import { showModal, showRecordingControls } from './ui.js';
 
-const St = state;
 
-function pickMimeType(){
-  const candidates = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
-  for(const t of candidates){
-    if(window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
-  }
-  return '';
-}
+const VIDEO_MIME_CANDIDATES = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
 
 export async function startVideoNoteRecording(){
-  if(!St.activeChat){ toast(t('videoNote.selectContactFirst')); return; }
-  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-    toast(t('videoNote.notSupported')); return;
-  }
-  S.currentFacingMode = 'user'; // каждая новая запись начинается с фронтальной камеры
-  try{
-    S.stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: S.currentFacingMode, width: {ideal: 480}, height: {ideal: 480}, aspectRatio: 1 },
-      audio: true
-    });
-  }catch(e){
-    // e.message у DOMException часто пустой - реальная причина в e.name
-    // (NotAllowedError / NotFoundError / NotReadableError / SecurityError и т.п.)
-    const detail = (e && e.name ? e.name : '') + (e && e.message ? ': ' + e.message : (e ? String(e) : ''));
-    toast(t('videoNote.noCameraAccess', { detail }));
-    return;
-  }
+  if(!state.activeChat){ toast(t('videoNote.selectContactFirst')); return; }
+  S.currentFacingMode = 'user'; // каждая запись начинается с фронтальной камеры
+  S.stream = await getMedia(
+    { video: cameraConstraints(S.currentFacingMode), audio: true },
+    'videoNote.notSupported',
+    'videoNote.noCameraAccess',
+  );
+  if(!S.stream) return;
   S.discardOnStop = false;
   S.chunks = [];
   releasePreviewBlob();
@@ -73,13 +45,13 @@ export async function startVideoNoteRecording(){
   preview.controls = false;
   preview.loop = false;
   preview.classList.add('mirrored');
-  preview.play().catch(() => {});
+  playQuietly(preview);
 
   const switchBtn = $('video-note-switch-cam-btn');
-  switchBtn.hidden = true; // до подтверждения, что камер реально несколько
+  switchBtn.hidden = true; // до подтверждения, что камер несколько
   detectMultipleCameras().then(has => { switchBtn.hidden = !has; });
 
-  S.canvasEl = S.canvasEl || document.createElement('canvas');
+  S.canvasEl = S.canvasEl || makeCanvas(CANVAS_SIZE, CANVAS_SIZE);
   S.canvasEl.width = CANVAS_SIZE;
   S.canvasEl.height = CANVAS_SIZE;
   S.canvasCtx = S.canvasEl.getContext('2d');
@@ -90,15 +62,8 @@ export async function startVideoNoteRecording(){
   const audioTrack = S.stream.getAudioTracks()[0];
   if(audioTrack) S.canvasStream.addTrack(audioTrack);
 
-  const mimeType = pickMimeType();
-  try{
-    S.mediaRecorder = mimeType ? new MediaRecorder(S.canvasStream, {mimeType}) : new MediaRecorder(S.canvasStream);
-  }catch(e){
-    toast(t('videoNote.startFailed', { error: e && e.message ? e.message : e }));
-    stopStream();
-    return;
-  }
-  S.mediaRecorder.addEventListener('dataavailable', (e) => { if(e.data && e.data.size > 0) S.chunks.push(e.data); });
+  S.mediaRecorder = tryCreateRecorder(S.canvasStream, VIDEO_MIME_CANDIDATES, S.chunks, 'videoNote.startFailed');
+  if(!S.mediaRecorder){ stopStream(); return; }
   S.mediaRecorder.addEventListener('stop', onRecorderStop);
   S.mediaRecorder.start();
   S.startedAt = Date.now();
@@ -110,10 +75,9 @@ export async function startVideoNoteRecording(){
 
   S.timerHandle = setInterval(() => {
     const elapsed = Date.now() - S.startedAt;
-    $('video-note-timer').textContent = fmtTime(elapsed) + ' / 1:00';
+    $('video-note-timer').textContent = formatMmSs(elapsed / 1000) + ' / 1:00';
     $('video-note-circle').style.setProperty('--progress', String(Math.min(100, elapsed / MAX_DURATION_MS * 100)));
   }, 200);
-  // Лимит кружка - 1 минута: по истечении запись автоматически завершается
-  // и пользователю показывается тот же предпросмотр, что и при ручном стопе.
+  // Лимит 1 минута: затем автозавершение и тот же предпросмотр, что при ручном стопе.
   S.autoStopHandle = setTimeout(stopAndShowPreview, MAX_DURATION_MS);
 }

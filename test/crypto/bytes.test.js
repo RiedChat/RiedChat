@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bytes as B } from '../../src/crypto/bytes.js';
+import * as B from '../../src/crypto/bytes.js';
 
 describe('bytes: base64/hex round trip', () => {
   it('b64FromBuf/bufFromB64 - round trip для ArrayBuffer', () => {
@@ -74,22 +74,22 @@ describe('bytes: WebCrypto примитивы (HKDF/HMAC/AES-CBC) - исполь
     expect(Array.from(mac1)).toEqual(Array.from(mac2));
   });
 
-  it('aesCbcEncrypt/aesCbcDecrypt - round trip с PKCS7-паддингом', async () => {
+  it('aesCbc encrypt/decrypt - round trip с PKCS7-паддингом', async () => {
     const key = new Uint8Array(32).fill(9);
     const iv = new Uint8Array(16).fill(3);
     const plaintext = B.utf8ToBuf('секретное сообщение произвольной длины');
-    const ciphertext = await B.aesCbcEncrypt(key, iv, plaintext);
+    const ciphertext = await B.aesCbc('encrypt', key, iv, plaintext);
     expect(ciphertext.length % 16).toBe(0);
-    const decrypted = await B.aesCbcDecrypt(key, iv, ciphertext);
+    const decrypted = await B.aesCbc('decrypt', key, iv, ciphertext);
     expect(B.bufToUtf8(decrypted)).toBe('секретное сообщение произвольной длины');
   });
 
-  it('aesCbcDecrypt с неверным ключом не даёт исходный текст (и обычно бросает из-за паддинга)', async () => {
+  it('aesCbc decrypt с неверным ключом не даёт исходный текст (и обычно бросает из-за паддинга)', async () => {
     const key = new Uint8Array(32).fill(9);
     const wrongKey = new Uint8Array(32).fill(8);
     const iv = new Uint8Array(16).fill(3);
-    const ciphertext = await B.aesCbcEncrypt(key, iv, B.utf8ToBuf('текст'));
-    await expect(B.aesCbcDecrypt(wrongKey, iv, ciphertext)).rejects.toThrow();
+    const ciphertext = await B.aesCbc('encrypt', key, iv, B.utf8ToBuf('текст'));
+    await expect(B.aesCbc('decrypt', wrongKey, iv, ciphertext)).rejects.toThrow();
   });
 });
 

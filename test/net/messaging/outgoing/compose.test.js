@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { buildQuotedBody } from '../../../../src/net/messaging/outgoing/compose.js';
 import { splitQuotedBody, stripQuotedBody, QUOTE_MARKER, QUOTE_ID_DELIM } from '../../../../src/core/text-patterns.js';
 
@@ -27,7 +27,7 @@ describe('buildQuotedBody', () => {
   it('id, содержащий сам разделитель QUOTE_ID_DELIM, экранируется вырезанием разделителя', () => {
     const dirtyId = 'a' + QUOTE_ID_DELIM + 'b';
     const body = buildQuotedBody({ author: 'X', text: 'y', id: dirtyId }, 'z');
-    // Разделитель должен встречаться только как открывающий/закрывающий - ровно 2 раза.
+    // Разделитель - только открывающий/закрывающий, ровно 2 раза.
     const count = body.split(QUOTE_ID_DELIM).length - 1;
     expect(count).toBe(2);
   });
@@ -52,8 +52,7 @@ describe('buildQuotedBody', () => {
   });
 
   it('вручную набранное "> текст" без QUOTE_MARKER не распознаётся как цитата', () => {
-    // Это ключевая защита: маркер невозможно набрать с клавиатуры, поэтому
-    // пользовательский "> текст\n\nостальное" не должен рендериться как цитата.
+    // Защита: маркер не набрать с клавиатуры, поэтому "> текст\n\nостальное" не рендерится как цитата.
     expect(splitQuotedBody('> текст\n\nостальное')).toBeNull();
   });
 });
